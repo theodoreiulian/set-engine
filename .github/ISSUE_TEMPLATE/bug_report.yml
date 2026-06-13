@@ -1,0 +1,48 @@
+name: Bug Report
+description: Report something that's broken
+labels: [bug]
+body:
+  - type: textarea
+    attributes:
+      label: Description
+      description: What went wrong?
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Steps to reproduce
+      description: List the exact steps that led to the issue.
+      placeholder: |
+        1. Navigate to ...
+        2. Click ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Expected behavior
+      description: What should have happened instead?
+  - type: input
+    attributes:
+      label: yt-dlp version
+      description: Run `yt-dlp --version` and paste the output
+      placeholder: 2026.03.17
+  - type: input
+    attributes:
+      label: ffmpeg version
+      description: Run `ffmpeg -version` and paste the first line
+      placeholder: ffmpeg version 8.1.1
+  - type: dropdown
+    attributes:
+      label: OS
+      options:
+        - macOS
+        - Windows
+        - Linux
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Logs
+      description: Paste any relevant console output or error messages.
+      render: shell
