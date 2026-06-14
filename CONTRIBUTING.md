@@ -6,7 +6,7 @@ Thanks for contributing! Here's how to get set up and submit changes.
 
 ```bash
 git clone https://github.com/theodoreiulian/set-engine.git
-cd setengine
+cd set-engine
 npm run setup
 ```
 
