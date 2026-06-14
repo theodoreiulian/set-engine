@@ -61,6 +61,7 @@ module.exports = {
       [FuseV1Options.EnableNodeCliInspectArguments]: false,
       [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true,
       [FuseV1Options.OnlyLoadAppFromAsar]: true,
+      [FuseV1Options.EnableWidevineCdm]: true,
     }),
   ],
 };

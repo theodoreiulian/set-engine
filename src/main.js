@@ -1,4 +1,4 @@
-import { app, BrowserWindow, session, ipcMain, WebContentsView, protocol } from 'electron';
+import { app, BrowserWindow, components, session, ipcMain, WebContentsView, protocol } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { stat as fsStat } from 'node:fs/promises';
@@ -172,6 +172,13 @@ const createWindow = () => {
         session: sess,
         nodeIntegration: false,
         contextIsolation: true,
+        // Widevine + autoplay are required for the Spotify web player (DRM),
+        // while YouTube Music gets by without them. enableBlinkFeatures is
+        // needed for the Web Audio API path used by Spotify's player core.
+        plugins: true,
+        webSecurity: false,
+        allowRunningInsecureContent: true,
+        autoplayPolicy: 'no-user-gesture-required',
       },
     });
 
@@ -182,6 +189,17 @@ const createWindow = () => {
     if (source.userAgent) {
       view.webContents.setUserAgent(source.userAgent);
     }
+
+    // Spotify's web player needs media (and related) permissions that
+    // Electron's default handler silently denies. Grant anything the page
+    // asks for — the user is intentionally browsing open.spotify.com.
+    view.webContents.session.setPermissionRequestHandler((_webContents, permission, callback) => {
+      callback(true);
+    });
+
+    view.webContents.session.setPermissionCheckHandler((_webContents, permission) => {
+      return true;
+    });
 
     view.webContents.on('did-navigate', (event, url) => {
       if (activeBrowserSource === sourceId) {
@@ -245,6 +263,32 @@ const createWindow = () => {
           url: validatedURL,
         });
       }, 2500);
+    });
+
+    // Forward console messages from the embedded browser to the main process
+    // log so playback / DRM errors are visible when debugging. Only enabled
+    // for Spotify because YT Music is already known-good.
+    const currentSourceId = sourceId;
+    view.webContents.on('console-message', (event) => {
+      // Filter out expected noise: Spotify's security warnings are harmless
+      // (we intentionally disable webSecurity for DRM/CDN loading), font
+      // preload messages are cosmetic, and sandbox warnings come from
+      // Spotify's embedded iframes which we can't control.
+      const skipPatterns = [
+        'Disabled webSecurity',
+        'allowRunningInsecureContent',
+        'Insecure Content-Security-Policy',
+        'preloaded using link preload but not used',
+        'both allow-scripts and allow-same-origin',
+      ];
+      if (skipPatterns.some((p) => event.message.includes(p))) return;
+
+      const label = currentSourceId === 'spotify' ? '[Spotify]' : '[Browser]';
+      if (event.level >= 3) {
+        console.error(`${label} ${event.message}`);
+      } else if (event.level >= 2) {
+        console.warn(`${label} ${event.message}`);
+      }
     });
 
     // Order matters here. We attach + setBounds BEFORE loadURL so the SPA
@@ -430,7 +474,19 @@ const createWindow = () => {
   }
 };
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Castlabs Electron for Content Security: wait for Widevine CDM to be
+  // downloaded and installed before anything touches a WebContentsView.
+  // Without this, Spotify's EME/DRM path reports "No supported keysystem".
+  try {
+    await components.whenReady();
+    console.log('[SetEngine] Widevine CDM status:', components.status());
+  } catch {
+    // components.whenReady() may not exist on stock Electron — the try/catch
+    // lets the app start gracefully without DRM support.
+    console.warn('[SetEngine] components API not available — DRM playback disabled');
+  }
+
   // Wire the setengine-audio:// handler. The renderer builds URLs of the form
   //   setengine-audio://local/<base64url-encoded absolute path>
   // We encode the path so '/' and Unicode characters survive URL parsing

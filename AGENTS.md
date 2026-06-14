@@ -52,6 +52,10 @@ There is no test framework.
 
 The `yt-dlp-wrap` npm package is **not used** — `src/main/ytdlp-wrapper.js` spawns `yt-dlp` itself and has been removed as a dependency.
 
+## Electron runtime — Castlabs fork
+
+Spotify playback requires Widevine DRM which stock Electron does not ship. This project uses [Castlabs Electron for Content Security](https://github.com/castlabs/electron-releases) as a drop-in replacement. `src/main.js` calls `components.whenReady()` before `createWindow()` to wait for the Widevine CDM to download and install on first launch. If Widevine is unavailable — for example on a stock Electron build — the `try/catch` around `components.whenReady()` lets the app start without DRM, and Spotify will show "playback disabled" in the browser view.
+
 ## Architecture
 
 Three-tier Electron split with strict process boundaries via `contextIsolation`:
