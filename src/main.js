@@ -699,6 +699,14 @@ app.whenReady().then(async () => {
   });
 });
 
+app.on('before-quit', () => {
+  // The --use-mock-keychain flag causes a known bug on macOS where the mock
+  // keychain thread fails to terminate cleanly, resulting in an infinite
+  // hang (beachball) when the app tries to gracefully quit. We bypass it
+  // entirely by forcing a hard process exit.
+  app.exit(0);
+});
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
