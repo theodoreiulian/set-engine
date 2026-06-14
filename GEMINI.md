@@ -50,7 +50,7 @@ There is no test framework.
 
 `main.js` prepends `/opt/homebrew/bin`, `/usr/local/bin`, `/opt/local/bin` to `process.env.PATH` on startup (macOS/Linux). Without this, Electron processes launched from environments with a stripped PATH miss Homebrew installs and detection incorrectly reports "not found". Keep this in mind when adding new external-binary dependencies.
 
-The `yt-dlp-wrap` npm package listed in `package.json` is **not used** — `src/main/ytdlp-wrapper.js` spawns `yt-dlp` itself.
+The `yt-dlp-wrap` npm package is **not used** — `src/main/ytdlp-wrapper.js` spawns `yt-dlp` itself and has been removed as a dependency.
 
 ## Architecture
 
