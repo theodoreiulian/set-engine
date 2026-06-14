@@ -291,6 +291,117 @@ const createWindow = () => {
       }
     });
 
+    // -----------------------------------------------------------------------
+    // Spotify browse-only mode
+    // -----------------------------------------------------------------------
+    // Spotify's Widevine DRM requires Verified Media Path (VMP) signing that
+    // only production browsers possess. Without it the EME license request
+    // fails silently, causing a rapid skip-loop through every track in a
+    // playlist. Rather than letting users hit this, we strip all playback
+    // affordances so the embedded browser is purely for browsing + downloading.
+    //
+    // The injections run on every top-level and in-page navigation because
+    // Spotify is a React SPA — the DOM is rebuilt on route transitions.
+    if (sourceId === 'spotify') {
+      const SPOTIFY_DISABLE_PLAYBACK_CSS = `
+        /* ── Hide the bottom now-playing / player bar ────────────── */
+        footer,
+        [data-testid="now-playing-bar"],
+        [data-testid="now-playing-widget"],
+        .Root__now-playing-bar { display: none !important; height: 0 !important; }
+
+        /* ── Reclaim the space the player bar stole ──────────────── */
+        .Root__main-view { bottom: 0 !important; padding-bottom: 36px !important; }
+
+        /* ── Hide all play/pause buttons and overlays ─────────────── */
+        [data-testid="play-button"],
+        [data-testid="pause-button"],
+        [data-testid="control-button-playpause"],
+        [data-testid="player-controls"],
+        button[aria-label="Play"],
+        button[aria-label="Pause"],
+        .player-controls,
+        .player-controls__buttons { display: none !important; }
+
+        /* ── Play overlay on cards / album art ───────────────────── */
+        [data-testid="card-click-handler"] button[data-testid="play-button"],
+        .CardButton { display: none !important; }
+
+        /* ── Volume, seek bar, repeat, shuffle ───────────────────── */
+        [data-testid="volume-bar"],
+        [data-testid="playback-progressbar"],
+        [data-testid="control-button-repeat"],
+        [data-testid="control-button-shuffle"],
+        [data-testid="control-button-skip-forward"],
+        [data-testid="control-button-skip-back"],
+        .progress-bar,
+        .playback-bar,
+        .volume-bar { display: none !important; }
+
+        /* ── Browse-only banner (fixed at bottom) ────────────────── */
+        #setengine-browse-banner {
+          position: fixed; bottom: 0; left: 0; right: 0;
+          height: 36px; display: flex; align-items: center; justify-content: center;
+          background: #181818; border-top: 1px solid #282828;
+          color: #b3b3b3; font-size: 12px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+          letter-spacing: 0.4px; z-index: 99999; pointer-events: none;
+          user-select: none;
+        }
+      `;
+
+      const SPOTIFY_DISABLE_PLAYBACK_JS = `
+        (function() {
+          if (window.__setengine_playback_blocked) return;
+          window.__setengine_playback_blocked = true;
+
+          // Neuter the Audio constructor so no <audio> element can play
+          const OrigAudio = window.Audio;
+          window.Audio = function() {
+            const a = new OrigAudio();
+            a.play = function() { return Promise.reject(new DOMException('Blocked by SetEngine', 'NotAllowedError')); };
+            Object.defineProperty(a, 'src', { set: function() {}, get: function() { return ''; } });
+            return a;
+          };
+          window.Audio.prototype = OrigAudio.prototype;
+
+          // Block play() on any HTMLMediaElement
+          const origPlay = HTMLMediaElement.prototype.play;
+          HTMLMediaElement.prototype.play = function() {
+            return Promise.reject(new DOMException('Blocked by SetEngine', 'NotAllowedError'));
+          };
+
+          // Block MediaSource so EME/DRM can't even start
+          if (window.MediaSource) {
+            window.MediaSource = class FakeMediaSource {
+              constructor() { throw new DOMException('Blocked by SetEngine', 'NotSupportedError'); }
+              static isTypeSupported() { return false; }
+            };
+          }
+
+          // Inject the browse-only banner if not present
+          if (!document.getElementById('setengine-browse-banner')) {
+            var banner = document.createElement('div');
+            banner.id = 'setengine-browse-banner';
+            banner.textContent = 'BROWSE ONLY \\u2014 use the DOWNLOAD button in the toolbar to save songs';
+            document.body.appendChild(banner);
+          }
+        })();
+      `;
+
+      const injectSpotifyBrowseMode = () => {
+        if (view.webContents.isDestroyed()) return;
+        view.webContents.insertCSS(SPOTIFY_DISABLE_PLAYBACK_CSS).catch(() => {});
+        view.webContents.executeJavaScript(SPOTIFY_DISABLE_PLAYBACK_JS, true).catch(() => {});
+      };
+
+      view.webContents.on('did-finish-load', injectSpotifyBrowseMode);
+      view.webContents.on('did-navigate-in-page', injectSpotifyBrowseMode);
+      // Also inject after a short delay to catch late SPA hydration
+      view.webContents.on('dom-ready', () => {
+        setTimeout(injectSpotifyBrowseMode, 500);
+      });
+    }
+
     // Order matters here. We attach + setBounds BEFORE loadURL so the SPA
     // sees the right viewport on its very first paint. Spotify in particular
     // reads window.innerWidth/innerHeight during its hydration step and

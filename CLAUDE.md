@@ -54,7 +54,9 @@ The `yt-dlp-wrap` npm package is **not used** — `src/main/ytdlp-wrapper.js` sp
 
 ## Electron runtime — Castlabs fork
 
-Spotify playback requires Widevine DRM which stock Electron does not ship. This project uses [Castlabs Electron for Content Security](https://github.com/castlabs/electron-releases) as a drop-in replacement. `src/main.js` calls `components.whenReady()` before `createWindow()` to wait for the Widevine CDM to download and install on first launch. If Widevine is unavailable — for example on a stock Electron build — the `try/catch` around `components.whenReady()` lets the app start without DRM, and Spotify will show "playback disabled" in the browser view.
+Spotify playback requires Widevine DRM which stock Electron does not ship. This project uses [Castlabs Electron for Content Security](https://github.com/castlabs/electron-releases) as a drop-in replacement. `src/main.js` calls `components.whenReady()` before `createWindow()` to wait for the Widevine CDM to download and install on first launch. If Widevine is unavailable — for example on a stock Electron build — the `try/catch` around `components.whenReady()` lets the app start without DRM.
+
+**Spotify is browse-only.** Even with the Castlabs fork, Spotify's server-side Verified Media Path (VMP) enforcement rejects the EME license request, causing a rapid skip-loop through every track without playing audio. `getOrCreateView()` in `main.js` injects CSS and JS into the Spotify WebContentsView on every navigation to hide play buttons, the now-playing bar, and all playback controls, and to block `HTMLMediaElement.play()`, `Audio`, and `MediaSource` at the API level. A subtle banner at the bottom reads "BROWSE ONLY — use the DOWNLOAD button in the toolbar to save songs". The `BrowserPage` renderer shows a one-time modal ("Spotify — Browse Only") when the user first switches to the Spotify source, dismissable permanently via the `spotifyBrowseWarningDismissed` setting.
 
 ## Architecture
 

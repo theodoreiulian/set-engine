@@ -28,6 +28,8 @@ const DEFAULTS = {
   // Deezer. Their TOS requires a visible "Powered by GetSongBPM" attribution
   // backlink, which the Settings page shows whenever a key is present.
   getSongBpmApiKey: '',
+  // When true, the "Spotify — Browse Only" warning popup is suppressed.
+  spotifyBrowseWarningDismissed: false,
 };
 
 export default class SettingsManager {
@@ -56,6 +58,7 @@ export default class SettingsManager {
         },
         bpmLookupOnline: { type: 'boolean' },
         getSongBpmApiKey: { type: 'string' },
+        spotifyBrowseWarningDismissed: { type: 'boolean' },
       },
     });
 

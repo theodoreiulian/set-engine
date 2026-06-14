@@ -1,5 +1,6 @@
 import { showToast } from '../components/toast.js';
 import { showSearchPicker } from '../components/search-picker.js';
+import { showModal } from '../components/modal.js';
 
 const SOURCE_META = {
   'youtube-music': {
@@ -23,9 +24,17 @@ const SOURCE_META = {
 function extractSearchQuery(url) {
   try {
     const u = new URL(url);
-    if (!/\/search\b/.test(u.pathname)) return null;
-    const q = u.searchParams.get('q');
-    return q ? q.trim() : null;
+    // YouTube Music uses ?q=<query> on /search
+    if (/\/search\b/.test(u.pathname)) {
+      const q = u.searchParams.get('q');
+      if (q) return q.trim();
+    }
+    // Spotify encodes the query in the path: /search/<query>[/optional-filter]
+    const spMatch = u.pathname.match(/^\/search\/([^/]+)/);
+    if (spMatch) {
+      return decodeURIComponent(spMatch[1]).trim() || null;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -45,6 +54,7 @@ export class BrowserPage {
     this._unsubLoadFailed = null;
     this.resizeObserver = null;
     this._spotifyFallbackActive = false;
+    this._spotifyWarningShown = false;
     this._lastSpotifyResults = [];
   }
 
@@ -143,6 +153,11 @@ export class BrowserPage {
 
     await this.openBrowser();
     this.setupListeners();
+
+    // Show the browse-only warning when Spotify is the initial source
+    if (this.activeSource === 'spotify') {
+      await this._showSpotifyBrowseOnlyWarning();
+    }
   }
 
   async switchSource(sourceId) {
@@ -175,6 +190,11 @@ export class BrowserPage {
 
     // Resync URL bar from whatever the now-active view is showing.
     await this._syncUrlBar();
+
+    // Show browse-only warning when switching to Spotify
+    if (sourceId === 'spotify') {
+      await this._showSpotifyBrowseOnlyWarning();
+    }
   }
 
   async openBrowser() {
@@ -187,6 +207,9 @@ export class BrowserPage {
 
       if (window.setengine.resizeBrowser) {
         this.resizeObserver = new ResizeObserver(() => {
+          // If a modal is open, it has collapsed the browser view to 0x0 so it
+          // doesn't occlude the modal. Don't let the observer overwrite that.
+          if (document.querySelector('.modal-overlay')) return;
           window.setengine.resizeBrowser(this._getPlaceholderBounds());
         });
         this.resizeObserver.observe(this.placeholder);
@@ -242,6 +265,37 @@ export class BrowserPage {
           console.warn(`[SetEngine] ${data.source} load-failed: ${data.errorDescription} (${data.errorCode}) @ ${data.url}`);
         }
       });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Spotify browse-only warning
+  // ---------------------------------------------------------------------------
+
+  async _showSpotifyBrowseOnlyWarning() {
+    if (this._spotifyWarningShown) return;
+    this._spotifyWarningShown = true;
+
+    // Check if the user has permanently dismissed this warning
+    try {
+      const settings = window.setengine && window.setengine.getSettings
+        ? await window.setengine.getSettings()
+        : null;
+      if (settings && settings.spotifyBrowseWarningDismissed) return;
+    } catch (_) { /* show it anyway */ }
+
+    const choice = await showModal(
+      'Spotify — Browse Only',
+      `<p>Spotify playback is <strong>not available</strong> inside SetEngine. Due to DRM restrictions, audio cannot play in embedded browsers.</p>
+      <p>You can still <strong>browse</strong> Spotify to find songs, playlists, and albums — then use the <strong>DOWNLOAD</strong> button in the toolbar to save them.</p>
+      <p style="color: var(--text-secondary); font-size: 12px; margin-top: 12px;">For listening, use the Spotify desktop app or your browser.</p>`,
+      ['GOT IT', "DON'T SHOW AGAIN"]
+    );
+
+    if (choice === "DON'T SHOW AGAIN") {
+      if (window.setengine && window.setengine.saveSettings) {
+        window.setengine.saveSettings({ spotifyBrowseWarningDismissed: true }).catch(() => {});
+      }
     }
   }
 
