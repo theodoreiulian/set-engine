@@ -17,6 +17,12 @@ if (started) {
   app.quit();
 }
 
+// Prevent the macOS "Electron wants to use your confidential information stored
+// in your keychain" prompt on startup. We don't need secure local cookie
+// encryption since cookies are session-bound anyway.
+app.commandLine.appendSwitch('use-mock-keychain');
+app.commandLine.appendSwitch('password-store', 'basic');
+
 // Custom audio scheme used by the Set Maker / Rate views.
 //
 // Blob-URL playback in Chromium can't seek backward through a blob to find an
