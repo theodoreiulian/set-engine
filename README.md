@@ -23,7 +23,7 @@ SetEngine wraps [yt-dlp](https://github.com/yt-dlp/yt-dlp) in a native desktop a
 
 ```bash
 # macOS / Linux
-git clone https://github.com/theodoreiulian/setengine.git
+git clone https://github.com/theodoreiulian/set-engine.git
 cd setengine
 npm run setup
 
