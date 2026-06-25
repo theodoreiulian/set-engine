@@ -194,26 +194,48 @@ function findActiveRegion(envelope) {
   const threshold = 0.6 * median;
   const runFrames = Math.max(4, Math.round(1500 / HOP_MS));
 
-  // From start: first run of length >= runFrames where every frame >= threshold.
-  let introFrames = 0;
-  for (let i = 0; i <= envelope.length - runFrames; i++) {
-    let ok = true;
+  // Too short to contain a single sustained run — no detectable active region,
+  // so there's no intro/outro to measure.
+  if (envelope.length < runFrames) return { introFrames: 0, outroFrames: 0 };
+
+  const lastStart = envelope.length - runFrames;
+
+  // Scanning forward, return the offset of the first sub-threshold frame in the
+  // window starting at `start` (so we can skip past it), or -1 if the whole
+  // window clears the threshold.
+  const firstFailFrom = (start) => {
     for (let j = 0; j < runFrames; j++) {
-      if (envelope[i + j] < threshold) { ok = false; i = i + j; break; }
+      if (envelope[start + j] < threshold) return j;
     }
-    if (ok) { introFrames = i; break; }
-    if (i === envelope.length - runFrames) introFrames = i;
+    return -1;
+  };
+
+  // From start: index of the first run of `runFrames` consecutive frames all
+  // >= threshold; introFrames is that index (the low-energy lead-in length).
+  // Initialised to the last possible window so that when NO sustained run
+  // exists the fallback is guaranteed — the previous version mutated the loop
+  // counter on failure and could skip over its fallback check, wrongly leaving
+  // introFrames at 0.
+  let introFrames = lastStart;
+  for (let i = 0; i <= lastStart;) {
+    const fail = firstFailFrom(i);
+    if (fail === -1) { introFrames = i; break; }
+    i += fail + 1;
   }
 
-  // From end: mirror.
-  let outroFrames = 0;
-  for (let i = envelope.length - 1; i >= runFrames - 1; i--) {
-    let ok = true;
+  // From end: mirror, measuring the index from the end of the envelope.
+  const firstFailEndingAt = (end) => {
     for (let j = 0; j < runFrames; j++) {
-      if (envelope[i - j] < threshold) { ok = false; i = i - j; break; }
+      if (envelope[end - j] < threshold) return j;
     }
-    if (ok) { outroFrames = envelope.length - 1 - i; break; }
-    if (i === runFrames - 1) outroFrames = envelope.length - 1 - i;
+    return -1;
+  };
+
+  let outroFrames = lastStart;
+  for (let i = envelope.length - 1; i >= runFrames - 1;) {
+    const fail = firstFailEndingAt(i);
+    if (fail === -1) { outroFrames = envelope.length - 1 - i; break; }
+    i -= fail + 1;
   }
 
   return { introFrames, outroFrames };

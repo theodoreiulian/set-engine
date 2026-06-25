@@ -2,24 +2,12 @@ import { ipcMain, dialog, shell } from 'electron';
 import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { isPlaylistUrl, normalizeWatchUrl } from './download-manager.js';
-import { classifyUrl, isKnownSource } from './sources.js';
+import { classifyUrl } from './sources.js';
 import { buildSet, rescoreTour } from './set-maker.js';
 import { writeRating, readRating, writeBpmKey } from './rating-writer.js';
 import { analyzeTrack } from './audio-analyzer.js';
 import { detectKeyBpm } from './key-bpm-detector.js';
 import { lookupBpm, reconcileBpm } from './bpm-sources.js';
-
-function findQueueItem(downloadManager, id) {
-  for (const item of downloadManager.queue.values()) {
-    if (item.id === id) return item;
-    if (Array.isArray(item.children)) {
-      const child = item.children.find((c) => c.id === id);
-      if (child) return child;
-    }
-  }
-  return null;
-}
 
 const MATCH_AUDIO_EXTS = new Set([
   '.mp3', '.flac', '.wav', '.wave', '.aiff', '.aif',
@@ -106,7 +94,7 @@ async function walkAudioDir(dirPath, relativeBase, out) {
   }
 }
 
-export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, cookieManagers, settingsManager) {
+export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, settingsManager) {
   // Open an external https URL in the user's default browser (e.g. the required
   // GetSongBPM attribution backlink). Only http/https — never local files.
   ipcMain.handle('app:open-external', async (event, url) => {
@@ -121,42 +109,12 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
     }
   });
 
-  // Resolve a cookie file for a given URL based on its source. Spotify
-  // public-content downloads don't actually need session cookies, but we
-  // export them anyway for parity (and so cookie auth becomes available the
-  // day spotdl needs it).
-  async function exportCookiesForUrl(url) {
-    const cls = classifyUrl(url);
-    const sourceId = cls ? cls.source : 'youtube-music';
-    const cm = cookieManagers.get(sourceId);
-    if (!cm) return null;
-    try {
-      return await cm.exportCookies();
-    } catch (_) {
-      return null;
-    }
-  }
-
-  function cookieManagerFor(sourceId) {
-    if (!isKnownSource(sourceId)) return null;
-    return cookieManagers.get(sourceId);
-  }
-
-  // Retry needs to know which cookie store the original item came from. Look
-  // it up from the queue rather than re-classifying the URL, so children of
-  // mixed-source playlists (none exist today but cheap to support) still work.
-  function exportCookiesForQueueItem(id) {
-    const item = findQueueItem(downloadManager, id);
-    if (!item) return Promise.resolve(null);
-    const cm = cookieManagers.get(item.source || 'youtube-music');
-    if (!cm) return Promise.resolve(null);
-    return cm.exportCookies().catch(() => null);
-  }
-
+  // Downloads run unauthenticated. The embedded sign-in browser was removed, so
+  // there's no session to harvest cookies from — yt-dlp/spotdl fetch public
+  // content directly (cookiePath is null). Spotify never needed cookies anyway.
   ipcMain.handle('download:url', async (event, url) => {
     try {
-      const cookiePath = await exportCookiesForUrl(url);
-      const id = await downloadManager.addDownload(url, cookiePath);
+      const id = await downloadManager.addDownload(url, null);
       return { success: true, id };
     } catch (err) {
       return { success: false, error: err.message };
@@ -170,8 +128,7 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
 
   ipcMain.handle('download:retry', async (event, id) => {
     try {
-      const cookiePath = await exportCookiesForQueueItem(id);
-      downloadManager.retryDownload(id, cookiePath);
+      downloadManager.retryDownload(id, null);
       return { success: true };
     } catch (err) {
       return { success: false, error: err.message };
@@ -262,23 +219,6 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
     return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
   });
 
-  ipcMain.handle('browser:auth-status', async (event, sourceId = 'youtube-music') => {
-    const cm = cookieManagerFor(sourceId);
-    if (!cm) return false;
-    return cm.isAuthenticated();
-  });
-
-  ipcMain.handle('browser:extract-cookies', async (event, sourceId = 'youtube-music') => {
-    const cm = cookieManagerFor(sourceId);
-    if (!cm) return { success: false, error: `Unknown source: ${sourceId}` };
-    try {
-      await cm.exportCookies();
-      return { success: true };
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  });
-
   ipcMain.handle('url:classify', (event, url) => classifyUrl(url));
 
   ipcMain.handle('deps:check', () => {
@@ -308,17 +248,6 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
     }
   });
 
-  ipcMain.handle('ytmusic:search', async (event, query) => {
-    try {
-      const q = String(query || '').trim();
-      if (!q) return { success: false, error: 'Empty search query' };
-      const results = await ytDlp.searchYouTube(q, 5);
-      return { success: true, results };
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  });
-
   ipcMain.handle('spotdl:health', () => spotdl.getHealth());
 
   ipcMain.handle('spotdl:update', async () => {
@@ -332,35 +261,6 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
         output,
         version: health.version,
       };
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  });
-
-  // Resolve a Spotify search query to track candidates via spotdl. Used by the
-  // Spotify fallback UI when the embedded open.spotify.com can't load (CSP) or
-  // the scrape script returns nothing. spotdl emits a JSON-like song list via
-  // `spotdl save <query> --save-file -`, but it actually treats bare queries
-  // as searches, so this returns at most a single best match.
-  ipcMain.handle('spotify:search', async (event, query) => {
-    try {
-      const q = String(query || '').trim();
-      if (!q) return { success: false, error: 'Empty search query' };
-      const entries = await spotdl.saveMetadata(q);
-      const results = entries.slice(0, 5).map((song) => {
-        const artists = Array.isArray(song.artists) ? song.artists.join(', ') : (song.artist || '');
-        return {
-          id: song.song_id || song.id || song.url,
-          url: song.url || (song.song_id ? `https://open.spotify.com/track/${song.song_id}` : ''),
-          title: song.name || song.title || 'Unknown',
-          channel: artists,
-          artists,
-          duration: typeof song.duration === 'number' ? song.duration : null,
-          thumbnail: song.cover_url || null,
-          source: 'spotify',
-        };
-      });
-      return { success: true, results };
     } catch (err) {
       return { success: false, error: err.message };
     }
@@ -612,39 +512,4 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
     }
   });
 
-  ipcMain.handle('url:detect', async (event, url) => {
-    try {
-      const cls = classifyUrl(url) || { source: 'youtube-music', kind: isPlaylistUrl(url) ? 'playlist' : 'track' };
-      const cookiePath = await exportCookiesForUrl(url);
-      const isPlaylist = cls.kind === 'playlist';
-      const targetUrl = cls.source === 'youtube-music' && !isPlaylist
-        ? normalizeWatchUrl(url)
-        : url;
-
-      const wrapper = cls.source === 'spotify' ? spotdl : ytDlp;
-
-      if (isPlaylist) {
-        const info = await wrapper.getPlaylistInfo(targetUrl, cookiePath);
-        return {
-          success: true,
-          source: cls.source,
-          type: 'playlist',
-          title: info.title || 'Unknown Playlist',
-          trackCount: info.entries ? info.entries.length : 0,
-        };
-      }
-
-      const info = wrapper.getVideoInfo
-        ? await wrapper.getVideoInfo(targetUrl, cookiePath)
-        : await wrapper.getTrackInfo(targetUrl, cookiePath);
-      return {
-        success: true,
-        source: cls.source,
-        type: 'song',
-        title: info.title || 'Unknown Title',
-      };
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  });
 }

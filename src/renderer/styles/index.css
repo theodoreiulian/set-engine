@@ -526,83 +526,6 @@ select.input option {
   justify-content: flex-end;
 }
 
-/* --- Search picker --- */
-.modal.search-picker {
-  min-width: 520px;
-  max-width: 640px;
-}
-
-.search-picker-query {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-bottom: 16px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.search-picker-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 16px;
-  max-height: 50vh;
-  overflow-y: auto;
-}
-
-.search-picker-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  cursor: pointer;
-  text-align: left;
-  color: var(--text-primary);
-  font: inherit;
-  transition: border-color 0.1s, background 0.1s;
-}
-
-.search-picker-item:hover {
-  background: var(--bg-hover);
-  border-color: var(--accent);
-}
-
-.search-picker-thumb {
-  width: 80px;
-  height: 60px;
-  object-fit: cover;
-  flex-shrink: 0;
-  background: var(--bg-primary);
-}
-
-.search-picker-thumb-placeholder {
-  background: var(--bg-primary);
-  border: 1px dashed var(--border);
-}
-
-.search-picker-meta {
-  flex: 1;
-  min-width: 0;
-}
-
-.search-picker-title {
-  font-size: 13px;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-bottom: 4px;
-}
-
-.search-picker-sub {
-  font-size: 11px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 /* --- Toast --- */
 #toast-container {
   position: fixed;
@@ -780,43 +703,22 @@ select.input option {
   color: var(--text-primary);
 }
 
-/* --- URL Bar (Browser Page) --- */
-.browser-toolbar {
+/* --- URL Download Row (Download Page) --- */
+.url-download-row {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 0;
-  margin-bottom: 16px;
-  border-bottom: 1px solid var(--border);
+  align-items: stretch;
+  gap: 8px;
 }
 
-.browser-url {
+.url-download-row .input-lg {
   flex: 1;
-  padding: 6px 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-  font-family: var(--font);
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
 }
 
-.browser-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: absolute;
-  top: calc(var(--titlebar-inset) + 140px);
-  bottom: 40px;
-  left: calc(var(--sidebar-width) + 32px);
-  right: 32px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  font-size: 13px;
-  text-transform: uppercase;
+.url-download-row .btn {
+  flex-shrink: 0;
+  padding-left: 24px;
+  padding-right: 24px;
 }
 
 /* --- Folder Path Display --- */

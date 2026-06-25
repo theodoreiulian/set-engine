@@ -61,7 +61,11 @@ module.exports = {
       [FuseV1Options.EnableNodeCliInspectArguments]: false,
       [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true,
       [FuseV1Options.OnlyLoadAppFromAsar]: true,
-      [FuseV1Options.EnableWidevineCdm]: true,
+      // NOTE: This app runs on stock Electron. It previously used the Castlabs
+      // fork (electron-releases#…+wvcus) for Widevine DRM, which existed solely
+      // to play Spotify inside the embedded browser. The embedded browser was
+      // removed in favour of direct URL downloads, so there's no DRM/Widevine
+      // requirement anymore — do not reintroduce the fork or a Widevine fuse.
     }),
   ],
 };

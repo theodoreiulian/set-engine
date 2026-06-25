@@ -20,24 +20,8 @@ export class SettingsPage {
     const form = document.createElement('div');
     form.id = 'settings-form';
 
-    // --- Preferred Source ---
-    form.appendChild(this.createFormGroup(
-      'Preferred Source',
-      `<div class="segmented" id="settings-preferred-source" style="display: inline-flex; gap: 4px;">
-        <button type="button" class="btn-secondary btn-sm" data-source="youtube-music" id="settings-source-yt">YOUTUBE MUSIC</button>
-        <button type="button" class="btn-secondary btn-sm" data-source="spotify" id="settings-source-spotify">SPOTIFY</button>
-      </div>
-      <div class="form-helper" style="margin-top: 6px;">Which music site the Browser tab opens by default.</div>`
-    ));
-
-    // --- Download Folder ---
-    form.appendChild(this.createFormGroup(
-      'Download Folder',
-      `<div class="folder-display" id="settings-folder-display">
-        <span class="folder-path" id="settings-folder-path">~/Music/SetEngine</span>
-        <button class="btn-secondary btn-sm" id="settings-browse-btn">BROWSE</button>
-      </div>`
-    ));
+    // The destination folder lives on the Download page now (set it right where
+    // you paste the link), so it's intentionally not duplicated here.
 
     // --- Audio Quality ---
     form.appendChild(this.createFormGroup(
@@ -189,11 +173,6 @@ export class SettingsPage {
   }
 
   attachListeners() {
-    const browseBtn = document.getElementById('settings-browse-btn');
-    if (browseBtn) {
-      browseBtn.addEventListener('click', () => this.handleBrowse());
-    }
-
     const updateBtn = document.getElementById('settings-update-ytdlp-btn');
     if (updateBtn) {
       updateBtn.addEventListener('click', () => this.handleUpdateYtDlp());
@@ -202,13 +181,6 @@ export class SettingsPage {
     const updateSpotdlBtn = document.getElementById('settings-update-spotdl-btn');
     if (updateSpotdlBtn) {
       updateSpotdlBtn.addEventListener('click', () => this.handleUpdateSpotdl());
-    }
-
-    const sourceGroup = document.getElementById('settings-preferred-source');
-    if (sourceGroup) {
-      sourceGroup.querySelectorAll('button[data-source]').forEach((btn) => {
-        btn.addEventListener('click', () => this.handlePreferredSource(btn.dataset.source));
-      });
     }
 
     // External links (e.g. the required GetSongBPM attribution) open in the
@@ -224,38 +196,12 @@ export class SettingsPage {
     });
   }
 
-  _paintPreferredSource(sourceId) {
-    const group = document.getElementById('settings-preferred-source');
-    if (!group) return;
-    group.querySelectorAll('button[data-source]').forEach((btn) => {
-      btn.style.opacity = btn.dataset.source === sourceId ? '1' : '0.5';
-    });
-  }
-
-  async handlePreferredSource(sourceId) {
-    if (!sourceId) return;
-    this._paintPreferredSource(sourceId);
-    if (window.setengine && window.setengine.saveSettings) {
-      try {
-        await window.setengine.saveSettings({ preferredSource: sourceId });
-        showToast(`Preferred source: ${sourceId === 'spotify' ? 'Spotify' : 'YouTube Music'}`, 'success');
-      } catch (err) {
-        showToast(err.message || 'Failed to save preference', 'error');
-      }
-    }
-  }
-
   async loadSettings() {
     if (!window.setengine || !window.setengine.getSettings) return;
 
     try {
       const settings = await window.setengine.getSettings();
       if (!settings) return;
-
-      if (settings.downloadFolder) {
-        const pathEl = document.getElementById('settings-folder-path');
-        if (pathEl) pathEl.textContent = settings.downloadFolder;
-      }
 
       if (settings.audioQuality) {
         const qualityEl = document.getElementById('settings-quality');
@@ -279,8 +225,6 @@ export class SettingsPage {
 
       const keyEl = document.getElementById('settings-getsongbpm-key');
       if (keyEl) keyEl.value = settings.getSongBpmApiKey || '';
-
-      this._paintPreferredSource(settings.preferredSource || 'youtube-music');
     } catch (err) {
       showToast('Failed to load settings', 'error');
     }
@@ -307,7 +251,6 @@ export class SettingsPage {
     const audioQuality = parseInt(document.getElementById('settings-quality')?.value || '320', 10);
     const filenameTemplate = document.getElementById('settings-filename-template')?.value || '%(title)s';
     const autoUpdateYtdlp = document.getElementById('settings-auto-update')?.checked ?? true;
-    const downloadFolder = document.getElementById('settings-folder-path')?.textContent || '';
     const bpmLookupOnline = document.getElementById('settings-bpm-online')?.checked ?? true;
     const getSongBpmApiKey = (document.getElementById('settings-getsongbpm-key')?.value || '').trim();
 
@@ -315,7 +258,6 @@ export class SettingsPage {
       audioQuality,
       filenameTemplate,
       autoUpdateYtdlp,
-      downloadFolder,
       bpmLookupOnline,
       getSongBpmApiKey,
     };
@@ -328,35 +270,8 @@ export class SettingsPage {
     try {
       await window.setengine.saveSettings(settings);
       showToast('Settings saved', 'success');
-
-      // Refresh status bar to reflect new quality
-      if (this.app && typeof this.app.setupStatusBar === 'function') {
-        this.app.setupStatusBar();
-      }
     } catch (err) {
       showToast(err.message || 'Failed to save settings', 'error');
-    }
-  }
-
-  async handleBrowse() {
-    if (!window.setengine || !window.setengine.selectFolder) {
-      showToast('IPC not available', 'error');
-      return;
-    }
-
-    try {
-      const folder = await window.setengine.selectFolder();
-      if (!folder) return;
-
-      const pathEl = document.getElementById('settings-folder-path');
-      if (pathEl) pathEl.textContent = folder;
-
-      if (window.setengine.saveSettings) {
-        await window.setengine.saveSettings({ downloadFolder: folder });
-        showToast('Download folder updated', 'success');
-      }
-    } catch (err) {
-      showToast(err.message || 'Failed to select folder', 'error');
     }
   }
 

@@ -1,8 +1,8 @@
 # SetEngine
 
-Download songs and playlists from YouTube Music as MP3s. Built for DJs who curate offline libraries.
+Download songs, playlists, and albums as MP3s. Built for DJs who curate offline libraries.
 
-SetEngine wraps [yt-dlp](https://github.com/yt-dlp/yt-dlp) in a native desktop app with an embedded YouTube Music browser. Sign in once, browse naturally, and download tracks (or full playlists) with one click. Built-in BPM/key detection, harmonic matching in real time, DJ rating workflow, and setlist builder make it more than a downloader — it's a library manager.
+SetEngine wraps [yt-dlp](https://github.com/yt-dlp/yt-dlp) (and [spotdl](https://github.com/spotDL/spotify-downloader) for Spotify) in a native desktop app. Paste a link to a song, playlist, or album from YouTube / YouTube Music or Spotify and the download starts — no browser, no sign-in. Built-in BPM/key detection, harmonic matching in real time, DJ rating workflow, and setlist builder make it more than a downloader — it's a library manager.
 
 **macOS · Windows · Linux**  (Electron)
 
@@ -10,14 +10,14 @@ SetEngine wraps [yt-dlp](https://github.com/yt-dlp/yt-dlp) in a native desktop a
 
 ## Features
 
-- **Authenticated downloads** — embedded YouTube Music WebContentsView preserves your session; cookies auto-forward to yt-dlp
-- **Playlist support** — drop a playlist URL, see all tracks, download them all in parallel
+- **Paste-and-download** — drop a YouTube / YouTube Music or Spotify link; source and shape (song vs. playlist/album) are auto-detected
+- **Playlist & album support** — paste a playlist/album URL and every track downloads in parallel
+- **Spotify** — Spotify links download through spotdl from the same box (install spotdl once)
 - **Concurrent queue** — 5 simultaneous downloads, aria2c-accelerated when available (~2× speed)
 - **BPM & key detection** — auto-tags audio files during download or after import (GetSongBPM + built-in DSP)
 - **Match Maker** — harmonic mixing suggestions in real time (tier 1 = same key, tier 2 = ±1 semitone)
 - **Set Maker** — drag-and-drop setlists with tour metadata, key-compatible sequencing, and inline playback
 - **Rating workflow** — scrub through your library, rate tracks, auto-write rating/energy to file metadata
-- **Spotify** — optional spotdl integration for Spotify-sourced downloads
 
 ## Quick Start
 
@@ -50,16 +50,14 @@ npm start
 
 ## Usage
 
-1. **Browser tab** — navigate to music.youtube.com, sign in, find the song or playlist you want
-2. **Download button** — SetEngine detects the URL and offers to download the song or entire playlist
-3. **Queue tab** — monitor download progress, retry failures, cancel
-4. **Match Maker** — import your library, see harmonic matches for any track
-5. **Set Maker** — tag BPM/key, build setlists, rate your tracks
+1. **Download tab** — paste a YouTube / YouTube Music or Spotify link (song, playlist, or album), pick a destination folder, hit DOWNLOAD
+2. **Queue tab** — monitor download progress, retry failures, cancel
+3. **Match Maker** — import your library, see harmonic matches for any track
+4. **Set Maker** — tag BPM/key, build setlists, rate your tracks
 
-### Settings
+The destination folder lives right on the Download tab. Other preferences are in Settings:
 
-- **Download folder** — where MP3s land (defaults to system Music folder)
-- **Bitrate** — 128, 192, 256, or 320 kbps
+- **Bitrate** — 128, 192, or 320 kbps
 - **Filename template** — yt-dlp output template (default: `%(title)s`)
 - **Concurrency** — hardcoded at 5 to stay under YouTube's per-IP rate limit
 
@@ -69,11 +67,11 @@ Electron app with strict context isolation. Three tiers:
 
 | Tier             | Path                    | Role                                   |
 |------------------|-------------------------|----------------------------------------|
-| Main process     | `src/main.js`           | yt-dlp orchestration, IPC, WebContentsView |
+| Main process     | `src/main.js`           | yt-dlp/spotdl orchestration, IPC, local audio protocol |
 | Preload          | `src/preload.js`        | contextBridge API contract             |
 | Renderer         | `src/renderer/`         | vanilla JS SPA (no framework)          |
 
-Key modules: `ytdlp-wrapper.js` (yt-dlp CLI), `download-manager.js` (queue & concurrency), `cookie-manager.js` (Netscape-format session export), `key-bpm-detector.js` (DSP analysis), `audio-analyzer.js` (librosa-style feature extraction).
+Key modules: `ytdlp-wrapper.js` (yt-dlp CLI), `spotdl-wrapper.js` (Spotify via spotdl), `download-manager.js` (queue & concurrency), `sources.js` (URL classification), `key-bpm-detector.js` (DSP analysis), `audio-analyzer.js` (librosa-style feature extraction).
 
 See [CLAUDE.md](CLAUDE.md) for detailed architecture notes.
 

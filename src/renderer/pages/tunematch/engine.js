@@ -26,6 +26,20 @@ const CAMELOT_TO_NAME = {
 
 const NOTE_TO_PITCH = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
 
+// Interpret a key-name mode suffix. CASE-SENSITIVE for the single-letter form
+// ('m' = minor as in "Am", 'M' = major as in "CM"); case-insensitive for the
+// spelled-out forms (min/minor, maj/major). An empty suffix defaults to major.
+// Returns 'minor' | 'major' | null (unrecognized — caller should reject).
+function parseModeSuffix(suffix) {
+  if (suffix === '') return 'major';
+  if (suffix === 'm') return 'minor';
+  if (suffix === 'M') return 'major';
+  const s = suffix.toLowerCase();
+  if (s === 'min' || s === 'minor') return 'minor';
+  if (s === 'maj' || s === 'major') return 'major';
+  return null;
+}
+
 export function parseKey(raw) {
   if (!raw) return null;
   const str = raw.toString().trim();
@@ -45,23 +59,27 @@ export function parseKey(raw) {
     }
   }
 
-  const sm = upper.match(/^([A-G])([#B]?)\s*(M|MIN|MINOR|MAJ|MAJOR)?$/);
+  // Note-name keys (e.g. "Am", "C#m", "Db", "F major"). Match against the
+  // ORIGINAL-case string: the note letter and accidental are case-insensitive,
+  // but the mode suffix's case carries meaning (lowercase 'm' = minor, uppercase
+  // 'M' = major). The accidental is '#' (sharp) or 'b'/'B' (flat).
+  const sm = str.match(/^([A-Ga-g])([#bB]?)\s*([A-Za-z]*)$/);
   if (sm) {
-    const base = NOTE_TO_PITCH[sm[1]];
+    const base = NOTE_TO_PITCH[sm[1].toUpperCase()];
     if (base === undefined) return null;
     let pitch = base;
     if (sm[2] === '#') pitch = (pitch + 1) % 12;
-    else if (sm[2] === 'B') pitch = (pitch + 11) % 12;
+    else if (sm[2] === 'b' || sm[2] === 'B') pitch = (pitch + 11) % 12;
 
-    const modeStr = sm[3] || '';
-    const isMinor = modeStr === 'M' || modeStr === 'MIN' || modeStr === 'MINOR';
-    const letter = isMinor ? 'A' : 'B';
+    const mode = parseModeSuffix(sm[3]);
+    if (!mode) return null;
+    const letter = mode === 'minor' ? 'A' : 'B';
     const code = PITCH_TO_CAMELOT[letter][pitch];
     if (!code) return null;
     return {
       code,
       pitchClass: pitch,
-      mode: isMinor ? 'minor' : 'major',
+      mode,
     };
   }
 

@@ -8,6 +8,7 @@ import { spawn, execFile } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { sanitizeFilenameTemplate } from './filename-template.js';
 
 /**
  * Turn raw yt-dlp stderr into a short, actionable message when we recognize the
@@ -29,7 +30,7 @@ function translateYtDlpError(code, stderr) {
   const label = id ? `${id}` : 'This video';
 
   if (/Sign in to confirm your age/i.test(text)) {
-    return `${label} is age-restricted. Sign in to YouTube Music in the browser tab and retry.`;
+    return `${label} is age-restricted and can't be downloaded without an authenticated session.`;
   }
   if (/Private video/i.test(text)) {
     return `${label} is a private video and can't be downloaded.`;
@@ -41,7 +42,7 @@ function translateYtDlpError(code, stderr) {
     return `${label} is unavailable (removed, region-locked, or restricted).`;
   }
   if (/Sign in to confirm you[’']?re not a bot/i.test(text)) {
-    return 'YouTube is challenging this request as a bot. Sign in to YouTube Music in the browser tab and retry.';
+    return 'YouTube is challenging this request as a bot. Wait a minute and retry; if it persists, update yt-dlp.';
   }
 
   // Fall through: strip warnings, surface the actual ERROR: line if there is one
@@ -58,14 +59,6 @@ function translateYtDlpError(code, stderr) {
 // "Requested format is not available" failure on every YouTube video.
 // Update this constant as new yt-dlp baselines emerge.
 const MIN_RECOMMENDED_YTDLP = '2025.09.05';
-
-function pickThumbnail(thumbnails) {
-  if (!Array.isArray(thumbnails) || thumbnails.length === 0) return null;
-  // Prefer a medium-resolution thumbnail. First is usually lowest res, last
-  // highest; pick something around 1/3 to keep modal sharp without bloat.
-  const idx = Math.min(thumbnails.length - 1, Math.floor(thumbnails.length / 3));
-  return thumbnails[idx]?.url || thumbnails[0]?.url || null;
-}
 
 function parseYtdlpVersion(versionStr) {
   if (!versionStr) return null;
@@ -407,37 +400,6 @@ export default class YtDlpWrapper {
     return this.executeJson(args);
   }
 
-  /**
-   * Search YouTube and return up to `count` results as a normalized list.
-   * Uses yt-dlp's `ytsearchN:` virtual playlist with --flat-playlist so we get
-   * fast metadata (title / duration / channel / thumbnail) without doing a
-   * full per-video extract.
-   * @param {string} query
-   * @param {number} count — number of results to return (1–20)
-   * @returns {Promise<Array<{id: string, url: string, title: string, channel: string, duration: number|null, thumbnail: string|null}>>}
-   */
-  async searchYouTube(query, count = 5) {
-    const safeCount = Math.max(1, Math.min(20, parseInt(count, 10) || 5));
-    const args = [
-      '--flat-playlist',
-      '--dump-single-json',
-      '--no-warnings',
-      `ytsearch${safeCount}:${query}`,
-    ];
-    const result = await this.executeJson(args);
-    const entries = (result && result.entries) || [];
-    return entries
-      .filter((e) => e && e.id)
-      .map((entry) => ({
-        id: entry.id,
-        url: entry.url || `https://www.youtube.com/watch?v=${entry.id}`,
-        title: entry.title || 'Unknown',
-        channel: entry.uploader || entry.channel || entry.uploader_id || '',
-        duration: typeof entry.duration === 'number' ? entry.duration : null,
-        thumbnail: pickThumbnail(entry.thumbnails) || (entry.thumbnail || null),
-      }));
-  }
-
   async getPlaylistInfo(url, cookiePath) {
     const args = this.buildPlaylistInfoArgs({ url, cookiePath });
     return this.executeJson(args);
@@ -577,6 +539,21 @@ export default class YtDlpWrapper {
     return false;
   }
 
+  /**
+   * Kill every in-flight yt-dlp child immediately. Called on app quit, where a
+   * hard process exit would otherwise orphan running yt-dlp (and its
+   * ffmpeg/aria2c) children. Uses SIGKILL since the app is terminating and we
+   * want a hard guarantee no downloader process survives.
+   */
+  killAll() {
+    for (const proc of this.activeProcesses.values()) {
+      try {
+        if (proc && !proc.killed) proc.kill('SIGKILL');
+      } catch (_) { /* already exited */ }
+    }
+    this.activeProcesses.clear();
+  }
+
   // ---------------------------------------------------------------------------
   // Progress parsing
   // ---------------------------------------------------------------------------
@@ -616,11 +593,4 @@ export default class YtDlpWrapper {
 
     return null;
   }
-}
-
-function sanitizeFilenameTemplate(template) {
-  let s = String(template || '%(title)s');
-  s = s.replace(/[^a-zA-Z0-9_\-%\(\)s]/g, '');
-  if (!s || s.length === 0) return '%(title)s';
-  return s;
 }

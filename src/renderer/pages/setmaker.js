@@ -1304,7 +1304,12 @@ export class SetMakerPage {
       title: t.title,
       artist: t.artist,
       path: t.path,
-      duration: t.duration,
+      // EXTINF wants seconds. The tour carries duration in features.durationMs
+      // (populated by analysis); fall back to undefined so the writer emits the
+      // standard "-1" for tracks that were never analyzed.
+      duration: (t.features && typeof t.features.durationMs === 'number' && t.features.durationMs > 0)
+        ? t.features.durationMs / 1000
+        : undefined,
     }));
     const res = await window.setengine.exportM3U(tracks);
     if (res && res.success) showToast(`Exported to ${res.destPath}`, 'success', 4000);

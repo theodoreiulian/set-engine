@@ -1,13 +1,13 @@
-import { BrowserPage } from './pages/browser.js';
+import { DownloadPage } from './pages/download.js';
 import { QueuePage } from './pages/queue.js';
 import { MatchPage } from './pages/match.js';
 import { SetMakerPage } from './pages/setmaker.js';
 import { SettingsPage } from './pages/settings.js';
 import { showModal } from './components/modal.js';
-import { runYtdlpUpdateFlow, runSpotdlUpdateFlow } from './tool-update.js';
+import { runYtdlpUpdateFlow } from './tool-update.js';
 
 const PAGES = {
-  browser: BrowserPage,
+  download: DownloadPage,
   queue: QueuePage,
   match: MatchPage,
   setmaker: SetMakerPage,
@@ -16,8 +16,8 @@ const PAGES = {
 
 const NAV_ITEMS = [
   {
-    id: 'nav-browser',
-    page: 'browser',
+    id: 'nav-download',
+    page: 'download',
     label: 'Download',
     icon: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>',
   },
@@ -58,12 +58,11 @@ export class App {
 
   async init() {
     this.renderSidebar();
-    this.navigateTo('browser');
+    this.navigateTo('download');
 
     this.setupIpcListeners();
     await this.checkDisclaimer();
     await this.checkYtDlpHealth();
-    await this.checkSpotdlHealth();
   }
 
   renderSidebar() {
@@ -95,16 +94,9 @@ export class App {
   navigateTo(pageName) {
     if (this.currentPageName === pageName) return;
 
-    // Destroy current page if it has a destroy method (e.g. browser page)
+    // Destroy current page if it has a destroy method
     if (this.currentPage && typeof this.currentPage.destroy === 'function') {
       this.currentPage.destroy();
-    }
-
-    // Close browser view when leaving browser page
-    if (this.currentPageName === 'browser' && pageName !== 'browser') {
-      if (window.setengine && window.setengine.closeBrowser) {
-        window.setengine.closeBrowser();
-      }
     }
 
     // Clear main content
@@ -153,6 +145,19 @@ export class App {
         }
       });
     }
+
+    // Structural queue changes (add / cancel / retry / clear, and playlist
+    // children appearing after metadata loads) are broadcast here. Without this
+    // subscription the queue page only learned about items once they emitted
+    // their first per-item progress event — so anything still waiting for a
+    // concurrency slot stayed invisible.
+    if (window.setengine.onQueueUpdate) {
+      window.setengine.onQueueUpdate((queue) => {
+        if (this.currentPage && this.currentPageName === 'queue' && typeof this.currentPage.syncQueue === 'function') {
+          this.currentPage.syncQueue(queue);
+        }
+      });
+    }
   }
 
   async checkYtDlpHealth() {
@@ -187,47 +192,6 @@ export class App {
         );
         if (choice === 'UPDATE NOW') {
           await runYtdlpUpdateFlow();
-        }
-      }
-    } catch (_) { /* ignore */ }
-  }
-
-  async checkSpotdlHealth() {
-    // Only nag the user when they actually prefer Spotify — YT-Music users
-    // shouldn't be bothered about a tool they don't need.
-    if (!window.setengine || !window.setengine.getSettings || !window.setengine.getSpotdlHealth) return;
-    try {
-      const settings = await window.setengine.getSettings();
-      if (!settings || settings.preferredSource !== 'spotify') return;
-
-      const health = await window.setengine.getSpotdlHealth();
-      if (!health) return;
-
-      if (!health.version) {
-        await showModal(
-          'spotdl Not Found',
-          `<p>You've set Spotify as your preferred source, but SetEngine couldn't find <code>spotdl</code> on your PATH.</p>
-          <p>Install it via your package manager:</p>
-          <ul>
-            <li>Homebrew: <code>brew install spotdl</code></li>
-            <li>pipx: <code>pipx install spotdl</code></li>
-            <li>pip: <code>pip install -U spotdl</code></li>
-          </ul>
-          <p>Then restart SetEngine. (Spotify downloads route through spotdl + yt-dlp under the hood.)</p>`,
-          ['OK']
-        );
-        return;
-      }
-
-      if (health.outdated === true) {
-        const choice = await showModal(
-          'Update spotdl',
-          `<p>Your spotdl is version <strong>${health.version}</strong>, older than the recommended minimum (<strong>${health.recommendedMin}</strong>).</p>
-          <p>SetEngine can update spotdl for you now.</p>`,
-          ['UPDATE NOW', 'LATER']
-        );
-        if (choice === 'UPDATE NOW') {
-          await runSpotdlUpdateFlow();
         }
       }
     } catch (_) { /* ignore */ }

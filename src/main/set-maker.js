@@ -220,13 +220,33 @@ function wheelWalkSeed(tracks, startKey) {
 }
 
 // ── Phase 2: 2-opt polish ───────────────────────────────────────────
-// Open path (no wrap). Handles three move classes:
-//   (a) interior reversal [i..j] with 0 < i < j < n-1 — affects two edges
-//   (b) prefix reversal [0..j] with j < n-1 — affects one edge (j, j+1)
-//   (c) suffix reversal [i..n-1] with i > 0 — affects one edge (i-1, i)
+// Open path (no wrap). A single loop tries reversing every segment [i..j]
+// (0 <= i < j <= n-1), which subsumes interior, prefix (i===0) and suffix
+// (j===n-1) reversals.
+//
+// IMPORTANT: transitionCost is ASYMMETRIC — phrasingScore(a,b) blends a's outro
+// into b's intro, so transitionCost(a,b) ≠ transitionCost(b,a) in general.
+// Reversing a segment flips the direction of EVERY interior edge, not just the
+// two boundary edges, so the classic symmetric-cost shortcut (compare only the
+// boundary edges) is invalid here — it would accept moves that actually raise
+// the true tour cost and skip genuinely improving ones.
+//
+// Instead we score the entire affected window — every edge from (i-1,i) through
+// (j,j+1) — under the current order vs. the hypothetical reversed order, and
+// only commit the reversal when it strictly lowers that window's total cost.
+// This is correct for asymmetric (and symmetric) cost functions alike.
 
 function reverseRange(tour, lo, hi) {
   while (lo < hi) { const tmp = tour[lo]; tour[lo] = tour[hi]; tour[hi] = tmp; lo++; hi--; }
+}
+
+// Sum of transitionCost over edges (k, k+1) for k in [lo, hi-1], reading each
+// position through the accessor `at` so we can cost a hypothetical reversal
+// without mutating the tour.
+function windowCost(at, lo, hi) {
+  let c = 0;
+  for (let k = lo; k < hi; k++) c += transitionCost(at(k), at(k + 1));
+  return c;
 }
 
 function twoOpt(tour, deadlineMs) {
@@ -242,39 +262,21 @@ function twoOpt(tour, deadlineMs) {
     passes++;
     if (Date.now() - start > deadlineMs) break;
 
-    // (a) Interior reversals
-    for (let i = 1; i < n - 1; i++) {
-      for (let j = i + 1; j < n - 1; j++) {
-        const before = transitionCost(tour[i - 1], tour[i])
-                     + transitionCost(tour[j], tour[j + 1]);
-        const after  = transitionCost(tour[i - 1], tour[j])
-                     + transitionCost(tour[i], tour[j + 1]);
+    for (let i = 0; i < n - 1; i++) {
+      for (let j = i + 1; j < n; j++) {
+        // Affected edge window: (i-1,i) … (j,j+1), clamped to the path ends.
+        const lo = i > 0 ? i - 1 : 0;
+        const hi = j < n - 1 ? j + 1 : n - 1;
+        // Reversing [i..j] moves the element at position k (i<=k<=j) to i+j-k.
+        const reversed = (k) => (k >= i && k <= j ? tour[i + j - k] : tour[k]);
+        const before = windowCost((k) => tour[k], lo, hi);
+        const after  = windowCost(reversed, lo, hi);
         if (after + 1e-9 < before) {
           reverseRange(tour, i, j);
           improved = true;
         }
       }
       if (Date.now() - start > deadlineMs) break;
-    }
-
-    // (b) Prefix reversals: reverse [0..j], affects only edge (j, j+1)
-    for (let j = 1; j < n - 1; j++) {
-      const before = transitionCost(tour[j], tour[j + 1]);
-      const after  = transitionCost(tour[0], tour[j + 1]);
-      if (after + 1e-9 < before) {
-        reverseRange(tour, 0, j);
-        improved = true;
-      }
-    }
-
-    // (c) Suffix reversals: reverse [i..n-1], affects only edge (i-1, i)
-    for (let i = 1; i < n - 1; i++) {
-      const before = transitionCost(tour[i - 1], tour[i]);
-      const after  = transitionCost(tour[i - 1], tour[n - 1]);
-      if (after + 1e-9 < before) {
-        reverseRange(tour, i, n - 1);
-        improved = true;
-      }
     }
   }
 

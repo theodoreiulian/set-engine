@@ -115,8 +115,11 @@ if [ "$OS" = "macos" ]; then
   # Required tools — don't auto-install (may need sudo / user preference)
   check_binary "yt-dlp" "yt-dlp" "brew install yt-dlp"
   check_binary "ffmpeg" "ffmpeg" "brew install ffmpeg"
-  # Optional tools — attempt auto-install
-  check_binary "aria2c" "aria2c   (optional — ~2× faster downloads)" "brew install aria2" ""
+  # Optional tools — attempt auto-install via a non-sudo package manager when
+  # one is available (mirrors the spotdl/pipx gating below).
+  ARIA2_AUTO=""
+  command -v brew &>/dev/null && ARIA2_AUTO="brew install aria2"
+  check_binary "aria2c" "aria2c   (optional — ~2× faster downloads)" "brew install aria2" "$ARIA2_AUTO"
   SPOTDL_AUTO=""
   [ -n "$PIPX" ] && SPOTDL_AUTO="$PIPX install spotdl"
   check_binary "spotdl" "spotdl   (optional — Spotify support)" "pipx install spotdl" "$SPOTDL_AUTO"

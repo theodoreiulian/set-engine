@@ -527,7 +527,6 @@ export class MatchPage {
     let added = 0, dupes = 0;
     const skip = { noBpm: 0, noKey: 0, badKey: 0, parseErr: 0 };
     const skippedSamples = [];
-    const diagFiles = [];
 
     this.showProgress(0, files.length, 'Reading metadata...');
 
@@ -546,7 +545,6 @@ export class MatchPage {
             skip.parseErr++;
             this.logSkipped(skippedSamples, files[i], 'read failed: ' + (readErr.message || readErr));
             this._retainUntagged(files[i], null);
-            // No real File yet — diagnose can't read this file, so skip diag for it.
             if (i % 20 === 0 || i === files.length - 1) {
               this.showProgress(i + 1, files.length, 'Reading metadata...');
               await this.yieldUI();
@@ -560,24 +558,20 @@ export class MatchPage {
           skip.parseErr++;
           this.logSkipped(skippedSamples, parseTarget, 'parse returned null');
           this._retainUntagged(files[i], null);
-          if (diagFiles.length < 10) diagFiles.push(parseTarget);
         } else if (!meta.bpm) {
           skip.noBpm++;
           this.logSkipped(skippedSamples, parseTarget, 'no BPM found (key=' + (meta.key || 'none') + ')');
           this._retainUntagged(files[i], meta);
-          if (diagFiles.length < 10) diagFiles.push(parseTarget);
         } else if (!meta.key) {
           skip.noKey++;
           this.logSkipped(skippedSamples, parseTarget, 'no Key found (bpm=' + meta.bpm + ')');
           this._retainUntagged(files[i], meta);
-          if (diagFiles.length < 10) diagFiles.push(parseTarget);
         } else {
           const parsedKey = TuneMatch.parseKey(meta.key);
           if (!parsedKey) {
             skip.badKey++;
             this.logSkipped(skippedSamples, parseTarget, 'key not recognized: "' + meta.key + '" (bpm=' + meta.bpm + ')');
             this._retainUntagged(files[i], meta);
-            if (diagFiles.length < 10) diagFiles.push(parseTarget);
           } else {
             const title = (meta.title || 'Untitled').trim();
             const artist = (meta.artist || 'Unknown').trim();
@@ -605,8 +599,6 @@ export class MatchPage {
         skip.parseErr++;
         this.logSkipped(skippedSamples, parseTarget, 'exception: ' + (e.message || e));
         this._retainUntagged(files[i], null);
-        // Only push to diagFiles if parseTarget can be read by diagnose() (i.e., is a Blob/File).
-        if (parseTarget instanceof Blob && diagFiles.length < 10) diagFiles.push(parseTarget);
       }
 
       if (i % 20 === 0 || i === files.length - 1) {

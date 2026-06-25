@@ -118,26 +118,38 @@ export default class DownloadManager {
     return id;
   }
 
-  async _handleSingle(item, cookiePath) {
-    const wrapper = this._wrapperFor(item.source);
-    try {
-      // YT and Spotify wrappers both expose getVideoInfo / getTrackInfo with a
-      // { title } shape — call whichever exists.
-      const info = wrapper.getVideoInfo
-        ? await wrapper.getVideoInfo(item.url, cookiePath)
-        : await wrapper.getTrackInfo(item.url, cookiePath);
-      item.title = info.title || item.url;
-      this._broadcast();
-    } catch (_) {
-      // title stays as URL
-    }
+  _handleSingle(item, cookiePath) {
+    // Run the metadata fetch AND the download inside a single concurrency slot.
+    // Previously the info fetch ran outside the limiter (one unbounded yt-dlp
+    // spawn per queued item — defeating MAX_CONCURRENT_DOWNLOADS) and the
+    // download was scheduled fire-and-forget, so the metadata phase didn't count
+    // against the cap. Returning the limiter promise also lets addDownload's
+    // error handler observe a metadata-fetch rejection.
+    return this.limit(async () => {
+      const wrapper = this._wrapperFor(item.source);
+      try {
+        // YT and Spotify wrappers both expose getVideoInfo / getTrackInfo with a
+        // { title } shape — call whichever exists.
+        const info = wrapper.getVideoInfo
+          ? await wrapper.getVideoInfo(item.url, cookiePath)
+          : await wrapper.getTrackInfo(item.url, cookiePath);
+        item.title = info.title || item.url;
+        this._broadcast();
+      } catch (_) {
+        // title stays as URL
+      }
 
-    this.limit(() => this._runDownload(item, cookiePath, null));
+      await this._runDownload(item, cookiePath, null);
+    });
   }
 
   async _handlePlaylist(item, cookiePath) {
     const wrapper = this._wrapperFor(item.source);
-    const info = await wrapper.getPlaylistInfo(item.url, cookiePath);
+    // Bound the playlist metadata fetch by the same concurrency cap so adding
+    // many playlists at once doesn't spawn an unbounded burst of yt-dlp probes.
+    // The fetch holds a slot only until it resolves; children are scheduled
+    // afterwards (outside this slot), so there's no risk of slot-starvation.
+    const info = await this.limit(() => wrapper.getPlaylistInfo(item.url, cookiePath));
     item.title = info.title || 'Unknown Playlist';
     const entries = info.entries || [];
 
@@ -168,6 +180,9 @@ export default class DownloadManager {
     }));
 
     item.status = 'downloading';
+    // Seed the "X/Y songs" counter so the queue UI can render it from the first
+    // paint (before any child has emitted a progress event).
+    item.childrenProgress = { complete: 0, total: item.children.length };
     this._broadcast();
 
     item.children.forEach((child) => {
@@ -267,11 +282,19 @@ export default class DownloadManager {
     if (playlistItem.status === 'cancelled') return;
     if (!playlistItem.children || playlistItem.children.length === 0) {
       playlistItem.progress = 0;
+      playlistItem.childrenProgress = { complete: 0, total: 0 };
       this._emitProgress(playlistItem);
       return;
     }
+    const total = playlistItem.children.length;
+    // Progress bar tracks *terminal* children (complete/error/cancelled) so the
+    // bar can reach 100% and the playlist can finalize even when some fail.
     const done = playlistItem.children.filter((c) => TERMINAL_STATUSES.has(c.status)).length;
-    playlistItem.progress = Math.round((done / playlistItem.children.length) * 100);
+    // The "X/Y songs" label counts only successfully downloaded tracks — that's
+    // the count the user actually cares about ("how many songs did I get").
+    const complete = playlistItem.children.filter((c) => c.status === 'complete').length;
+    playlistItem.progress = Math.round((done / total) * 100);
+    playlistItem.childrenProgress = { complete, total };
     this._emitProgress(playlistItem);
   }
 

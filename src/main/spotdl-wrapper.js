@@ -13,6 +13,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { sanitizeFilenameTemplate } from './filename-template.js';
 
 // Minimum spotdl version we trust. spotdl's older releases sometimes hardwire
 // out-of-date yt-dlp expectations and fail across the board. Bump as needed.
@@ -359,7 +360,8 @@ export default class SpotdlWrapper {
     const id = crypto.randomUUID();
     this.activeProcesses.set(id, proc);
 
-    let stderrBuffer = '';
+    let stderrBuffer = '';      // full stderr text, kept verbatim for error reporting
+    let stderrLineBuffer = '';  // partial-line carry for progress parsing on stderr
     let stdoutBuffer = '';
     let totalTracks = null;
     let completedTracks = 0;
@@ -413,12 +415,19 @@ export default class SpotdlWrapper {
       const text = chunk.toString();
       stderrBuffer += text;
       // spotdl writes progress to stderr in some versions, so process it too.
-      let buf = text;
-      buf = flushBuffered(buf);
+      // Carry the trailing partial line across chunks (parallels the stdout path)
+      // so lines split on a chunk boundary aren't dropped or mis-parsed.
+      stderrLineBuffer += text;
+      stderrLineBuffer = flushBuffered(stderrLineBuffer);
     });
 
     proc.on('close', (code) => {
       this.activeProcesses.delete(id);
+      // Flush any trailing partial line that never received a newline — the last
+      // line of a stream commonly has no terminator, and that's often the
+      // "Downloaded ..." / "Found N songs" line we care about.
+      if (stdoutBuffer) { onLine(stdoutBuffer); stdoutBuffer = ''; }
+      if (stderrLineBuffer) { onLine(stderrLineBuffer); stderrLineBuffer = ''; }
       if (code === 0) {
         // Guarantee a final 100% so the UI flips cleanly.
         emitter.emit('progress', { percent: 100, size: '', speed: '', eta: '' });
@@ -450,7 +459,10 @@ export default class SpotdlWrapper {
    * Tokens we don't recognise are passed through unchanged.
    */
   _translateFilenameTemplate(template, outputFolder) {
-    const mapped = template
+    // Sanitize the yt-dlp-style template the same way the yt-dlp engine does
+    // (shared helper) BEFORE mapping tokens, so both engines produce identical
+    // filenames and neither can escape the output folder.
+    const mapped = sanitizeFilenameTemplate(template)
       .replace(/%\(title\)s/gi, '{title}')
       .replace(/%\(artist\)s/gi, '{artists}')
       .replace(/%\(album\)s/gi, '{album}')
@@ -469,5 +481,19 @@ export default class SpotdlWrapper {
       return true;
     }
     return false;
+  }
+
+  /**
+   * Kill every in-flight spotdl child immediately. Called on app quit, where a
+   * hard process exit would otherwise orphan running spotdl (and its
+   * yt-dlp/ffmpeg) children. Uses SIGKILL since the app is terminating.
+   */
+  killAll() {
+    for (const proc of this.activeProcesses.values()) {
+      try {
+        if (proc && !proc.killed) proc.kill('SIGKILL');
+      } catch (_) { /* already exited */ }
+    }
+    this.activeProcesses.clear();
   }
 }

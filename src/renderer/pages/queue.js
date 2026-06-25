@@ -66,17 +66,65 @@ export class QueuePage {
 
     try {
       const queue = await window.setengine.getQueue();
-      if (queue && Array.isArray(queue)) {
-        this.queueList.innerHTML = '';
-        this.items.clear();
-        queue.forEach((item) => this.addItem(item));
-      }
-
-      if (!queue || queue.length === 0) {
-        this.showEmptyState();
-      }
+      this._rebuild(Array.isArray(queue) ? queue : []);
     } catch (err) {
       showToast('Failed to load queue', 'error');
+    }
+  }
+
+  // Full teardown + rebuild from a queue snapshot, preserving which playlists
+  // the user had expanded so a rebuild doesn't silently collapse them.
+  _rebuild(queue) {
+    this.queueList.innerHTML = '';
+    this.items.clear();
+    if (!queue.length) {
+      this.showEmptyState();
+      return;
+    }
+    queue.forEach((item) => this.addItem(item));
+    this.expandedPlaylists.forEach((id) => {
+      const childrenContainer = document.getElementById(`queue-children-${id}`);
+      const toggleBtn = document.getElementById(`queue-toggle-${id}`);
+      if (childrenContainer && toggleBtn) {
+        childrenContainer.classList.remove('hidden');
+        toggleBtn.textContent = toggleBtn.textContent.replace('▸', '▾');
+      }
+    });
+  }
+
+  // Live handler for download:queue-update (structural changes: add / cancel /
+  // retry / clear, and playlist children that appear after metadata loads).
+  // Rebuilds only when the set of rendered items/children actually changed;
+  // otherwise refreshes existing rows in place so we don't tear down the DOM on
+  // every status transition.
+  syncQueue(queue) {
+    if (!Array.isArray(queue)) return;
+
+    const seen = new Set();
+    let structuralChange = false;
+    for (const item of queue) {
+      seen.add(item.id);
+      if (!this.items.has(item.id)) structuralChange = true;
+      if (Array.isArray(item.children)) {
+        for (const child of item.children) {
+          seen.add(child.id);
+          if (!this.items.has(child.id)) structuralChange = true;
+        }
+      }
+    }
+    if (!structuralChange) {
+      for (const id of this.items.keys()) {
+        if (!seen.has(id)) { structuralChange = true; break; }
+      }
+    }
+
+    if (structuralChange) {
+      this._rebuild(queue);
+    } else {
+      for (const item of queue) {
+        this.updateItem(item);
+        if (Array.isArray(item.children)) item.children.forEach((c) => this.updateItem(c));
+      }
     }
   }
 
@@ -142,9 +190,9 @@ export class QueuePage {
         ${item.status === 'error' && item.error ? `
           <div class="queue-item-error mt-4" id="queue-error-${item.id}">${escapeHtml(item.error)}</div>
         ` : ''}
-        ${item.type === 'playlist' && item.childrenProgress ? `
+        ${!isChild && item.type === 'playlist' ? `
           <div class="queue-item-meta mt-4" id="queue-playlist-progress-${item.id}">
-            ${item.childrenProgress.complete || 0}/${item.childrenProgress.total || 0} songs
+            ${item.childrenProgress ? `${item.childrenProgress.complete || 0}/${item.childrenProgress.total || 0} songs` : ''}
           </div>
         ` : ''}
       </div>
@@ -244,12 +292,19 @@ export class QueuePage {
       statusEl.textContent = config.label;
     }
 
-    // Update progress bar
+    // Update progress bar. Toggle the state classes (don't just add them) so a
+    // retried download clears its previous state: a failed item that's retried
+    // and succeeds must drop the red 'error' class and gain 'complete', or both
+    // classes linger and the CSS rule declared later (.error) keeps the bar red.
     const progressEl = document.getElementById(`queue-progress-${data.id}`);
-    if (progressEl && data.progress !== undefined) {
-      progressEl.style.width = `${data.progress}%`;
-      if (data.status === 'complete') progressEl.classList.add('complete');
-      if (data.status === 'error') progressEl.classList.add('error');
+    if (progressEl) {
+      if (data.progress !== undefined) {
+        progressEl.style.width = `${data.progress}%`;
+      }
+      if (data.status) {
+        progressEl.classList.toggle('complete', data.status === 'complete');
+        progressEl.classList.toggle('error', data.status === 'error');
+      }
     }
 
     // Update meta (speed + ETA)

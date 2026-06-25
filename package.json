@@ -13,7 +13,17 @@
     "publish": "electron-forge publish",
     "lint": "echo \"No linting configured\""
   },
-  "keywords": ["youtube-music", "downloader", "mp3", "dj", "yt-dlp", "electron", "spotify", "bpm", "key-detection"],
+  "keywords": [
+    "youtube-music",
+    "downloader",
+    "mp3",
+    "dj",
+    "yt-dlp",
+    "electron",
+    "spotify",
+    "bpm",
+    "key-detection"
+  ],
   "author": {
     "name": "theodoreiulian",
     "email": "theodore.iulian@gmail.com"
@@ -33,11 +43,10 @@
     "@electron-forge/maker-rpm": "^7.11.2",
     "@electron-forge/maker-squirrel": "^7.11.2",
     "@electron-forge/maker-zip": "^7.11.2",
-    "@electron-forge/plugin-auto-unpack-natives": "^7.11.2",
     "@electron-forge/plugin-fuses": "^7.11.2",
     "@electron-forge/plugin-vite": "^7.11.2",
     "@electron/fuses": "^1.8.0",
-    "electron": "https://github.com/castlabs/electron-releases#v42.3.3%2Bwvcus",
+    "electron": "^42.5.0",
     "vite": "^5.4.21"
   },
   "dependencies": {

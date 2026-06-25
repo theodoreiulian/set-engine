@@ -768,27 +768,6 @@ function fallback(name) {
   return { title, artist: '', bpm: 0, key: '' };
 }
 
-export async function diagnose(file) {
-  const info = { name: file.name, size: file.size, ext: getExtension(file.name) };
-  try {
-    const head = await readSlice(file, 0, Math.min(file.size, 32));
-    info.headHex = Array.from(head.subarray(0, 32)).map(b => b.toString(16).padStart(2, '0')).join(' ');
-    info.headAscii = Array.from(head.subarray(0, 32)).map(b => b >= 32 && b < 127 ? String.fromCharCode(b) : '.').join('');
-
-    if (head[0] === 0x49 && head[1] === 0x44 && head[2] === 0x33) info.format = 'ID3v2 (MP3/WAV/AIFF)';
-    else if (head[0] === 0xFF && (head[1] & 0xE0) === 0xE0) info.format = 'MPEG audio (no ID3v2 header)';
-    else if (ascii(head, 0, 4) === 'fLaC') info.format = 'FLAC';
-    else if (ascii(head, 0, 4) === 'OggS') info.format = 'OGG';
-    else if (ascii(head, 0, 4) === 'RIFF') info.format = 'WAV (RIFF)';
-    else if (ascii(head, 0, 4) === 'FORM') info.format = 'AIFF';
-    else if (ascii(head, 4, 4) === 'ftyp') info.format = 'M4A/MP4';
-    else info.format = 'Unknown';
-  } catch (e) {
-    info.error = e.message;
-  }
-  return info;
-}
-
 export async function parse(file) {
   const ext = getExtension(file.name);
   try {

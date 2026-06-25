@@ -1,4 +1,4 @@
-import { app, BrowserWindow, components, session, ipcMain, WebContentsView, protocol } from 'electron';
+import { app, BrowserWindow, protocol } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { stat as fsStat } from 'node:fs/promises';
@@ -7,9 +7,7 @@ import started from 'electron-squirrel-startup';
 import YtDlpWrapper from './main/ytdlp-wrapper.js';
 import SpotdlWrapper from './main/spotdl-wrapper.js';
 import DownloadManager from './main/download-manager.js';
-import CookieManager from './main/cookie-manager.js';
 import SettingsManager from './main/settings-manager.js';
-import { SOURCES, isKnownSource } from './main/sources.js';
 import { registerIpcHandlers } from './main/ipc-handlers.js';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
@@ -19,11 +17,11 @@ if (started) {
 
 // Prevent the macOS "Electron wants to use your confidential information stored
 // in your keychain" prompt on startup. We don't need secure local cookie
-// encryption since cookies are session-bound anyway.
+// encryption since nothing here persists sensitive credentials.
 app.commandLine.appendSwitch('use-mock-keychain');
 app.commandLine.appendSwitch('password-store', 'basic');
 
-// Custom audio scheme used by the Set Maker / Rate views.
+// Custom audio scheme used by the Set Maker / Match views.
 //
 // Blob-URL playback in Chromium can't seek backward through a blob to find an
 // MP4 `moov` atom located at the end of the file. iTunes / Apple Music exports
@@ -99,19 +97,7 @@ if (process.platform !== 'win32') {
 }
 
 let mainWindow;
-// Per-source { view, attached, session } records. Views are created lazily on
-// the first browser:open for their source and kept alive for the rest of the
-// app lifetime — switching sources or leaving the browser tab detaches the
-// view from the window's content tree without destroying its WebContents.
-// This is what lets login state, scroll position, and playback survive both
-// tab switches and source switches.
-const browserViews = new Map();
-// Which source is currently mounted in the window's content tree. Null means
-// no view is attached (browser tab closed, or initial state).
-let activeBrowserSource = null;
 let ytDlp, spotdl, downloadManager, settingsManager;
-// Per-source CookieManager instances, keyed by source id.
-const cookieManagers = new Map();
 
 const createWindow = () => {
   mainWindow = new BrowserWindow({
@@ -136,18 +122,6 @@ const createWindow = () => {
   settingsManager = new SettingsManager();
   downloadManager = new DownloadManager(mainWindow, ytDlp, spotdl);
 
-  // One CookieManager + persistent session per source. Each source's session
-  // is partitioned so cookies, localStorage, and login state are siloed.
-  for (const source of Object.values(SOURCES)) {
-    const sess = session.fromPartition(source.partition);
-    cookieManagers.set(source.id, new CookieManager({
-      session: sess,
-      cookieDomain: source.cookieDomain,
-      cookieFileName: source.cookieFileName,
-      authCookieNames: source.authCookieNames,
-    }));
-  }
-
   // Lazy load settings and configure download manager. Queue concurrency is
   // hardcoded in DownloadManager (sized to YouTube's per-IP tolerance), so it
   // isn't pushed from settings.
@@ -156,387 +130,7 @@ const createWindow = () => {
   downloadManager.setBitrate(settings.audioQuality);
   downloadManager.setFilenameTemplate(settings.filenameTemplate);
 
-  registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, cookieManagers, settingsManager);
-
-  // Per-source WebContentsView management.
-  //
-  // Each entry in `browserViews` holds a kept-alive view; the renderer asks
-  // the main process which one should currently composite into the window via
-  // browser:open(bounds, source) or browser:set-source(source). Only one view
-  // is attached at a time — switching sources detaches the previous view and
-  // attaches the new one at the same bounds. Detaching preserves the page
-  // entirely (login, scroll, playback), so source switches feel instant.
-
-  function getOrCreateView(sourceId, initialBounds) {
-    const source = SOURCES[sourceId];
-    if (!source) return null;
-    if (browserViews.has(sourceId)) return browserViews.get(sourceId);
-
-    const sess = session.fromPartition(source.partition);
-    const view = new WebContentsView({
-      webPreferences: {
-        session: sess,
-        nodeIntegration: false,
-        contextIsolation: true,
-        // Widevine + autoplay are required for the Spotify web player (DRM),
-        // while YouTube Music gets by without them. enableBlinkFeatures is
-        // needed for the Web Audio API path used by Spotify's player core.
-        plugins: true,
-        webSecurity: false,
-        allowRunningInsecureContent: true,
-        autoplayPolicy: 'no-user-gesture-required',
-      },
-    });
-
-    // User-agent override. Critical for Spotify, harmless for YT Music. Must
-    // be set before loadURL so the very first request goes out with the
-    // spoofed UA — Spotify's SPA reads navigator.userAgent at boot and locks
-    // in layout based on it.
-    if (source.userAgent) {
-      view.webContents.setUserAgent(source.userAgent);
-    }
-
-    // Spotify's web player needs media (and related) permissions that
-    // Electron's default handler silently denies. Grant anything the page
-    // asks for — the user is intentionally browsing open.spotify.com.
-    view.webContents.session.setPermissionRequestHandler((_webContents, permission, callback) => {
-      callback(true);
-    });
-
-    view.webContents.session.setPermissionCheckHandler((_webContents, permission) => {
-      return true;
-    });
-
-    view.webContents.on('did-navigate', (event, url) => {
-      if (activeBrowserSource === sourceId) {
-        mainWindow.webContents.send('browser:navigate', url);
-      }
-    });
-    view.webContents.on('did-navigate-in-page', (event, url) => {
-      if (activeBrowserSource === sourceId) {
-        mainWindow.webContents.send('browser:navigate', url);
-      }
-    });
-
-    // Spotify (and any SPA that redirects mid-navigation, runs an interstitial,
-    // or aborts a request after a JS-initiated nav) emits a spurious
-    // did-fail-load even when the eventual page load is successful. Don't
-    // dispatch the failure IPC immediately — schedule it, and cancel if a
-    // did-finish-load arrives first. We also discard once any successful
-    // navigation has been observed for the view's lifetime so a transient
-    // error after a working session never re-triggers the fallback UI.
-    let pendingFailureTimer = null;
-    let hasLoadedSuccessfully = false;
-
-    const clearPendingFailure = () => {
-      if (pendingFailureTimer) {
-        clearTimeout(pendingFailureTimer);
-        pendingFailureTimer = null;
-      }
-    };
-
-    view.webContents.on('did-finish-load', () => {
-      hasLoadedSuccessfully = true;
-      clearPendingFailure();
-    });
-    view.webContents.on('did-frame-finish-load', (event, isMainFrame) => {
-      if (isMainFrame) {
-        hasLoadedSuccessfully = true;
-        clearPendingFailure();
-      }
-    });
-
-    view.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
-      // Skip sub-resource failures and the noisy ERR_ABORTED (-3) that fires
-      // on user-initiated navigation interrupts.
-      if (!isMainFrame || errorCode === -3) return;
-      // If the view has already successfully loaded once, the user is mid-
-      // session — surface as a toast through the navigate channel rather than
-      // the load-failed channel which triggers fallback UI.
-      if (hasLoadedSuccessfully) return;
-
-      clearPendingFailure();
-      pendingFailureTimer = setTimeout(() => {
-        pendingFailureTimer = null;
-        // Re-check at fire time. If a successful load slipped in during the
-        // grace window, drop the failure entirely.
-        if (hasLoadedSuccessfully) return;
-        if (activeBrowserSource !== sourceId) return;
-        mainWindow.webContents.send('browser:load-failed', {
-          source: sourceId,
-          errorCode,
-          errorDescription,
-          url: validatedURL,
-        });
-      }, 2500);
-    });
-
-    // Forward console messages from the embedded browser to the main process
-    // log so playback / DRM errors are visible when debugging. Only enabled
-    // for Spotify because YT Music is already known-good.
-    const currentSourceId = sourceId;
-    view.webContents.on('console-message', (event) => {
-      // Filter out expected noise: Spotify's security warnings are harmless
-      // (we intentionally disable webSecurity for DRM/CDN loading), font
-      // preload messages are cosmetic, and sandbox warnings come from
-      // Spotify's embedded iframes which we can't control.
-      const skipPatterns = [
-        'Disabled webSecurity',
-        'allowRunningInsecureContent',
-        'Insecure Content-Security-Policy',
-        'preloaded using link preload but not used',
-        'both allow-scripts and allow-same-origin',
-      ];
-      if (skipPatterns.some((p) => event.message.includes(p))) return;
-
-      const label = currentSourceId === 'spotify' ? '[Spotify]' : '[Browser]';
-      if (event.level >= 3) {
-        console.error(`${label} ${event.message}`);
-      } else if (event.level >= 2) {
-        console.warn(`${label} ${event.message}`);
-      }
-    });
-
-    // -----------------------------------------------------------------------
-    // Spotify browse-only mode
-    // -----------------------------------------------------------------------
-    // Spotify's Widevine DRM requires Verified Media Path (VMP) signing that
-    // only production browsers possess. Without it the EME license request
-    // fails silently, causing a rapid skip-loop through every track in a
-    // playlist. Rather than letting users hit this, we strip all playback
-    // affordances so the embedded browser is purely for browsing + downloading.
-    //
-    // The injections run on every top-level and in-page navigation because
-    // Spotify is a React SPA — the DOM is rebuilt on route transitions.
-    if (sourceId === 'spotify') {
-      const SPOTIFY_DISABLE_PLAYBACK_CSS = `
-        /* ── Hide the bottom now-playing / player bar ────────────── */
-        footer,
-        [data-testid="now-playing-bar"],
-        [data-testid="now-playing-widget"],
-        .Root__now-playing-bar { display: none !important; height: 0 !important; }
-
-        /* ── Reclaim the space the player bar stole ──────────────── */
-        .Root__main-view { bottom: 0 !important; padding-bottom: 36px !important; }
-
-        /* ── Hide all play/pause buttons and overlays ─────────────── */
-        [data-testid="play-button"],
-        [data-testid="pause-button"],
-        [data-testid="control-button-playpause"],
-        [data-testid="player-controls"],
-        button[aria-label="Play"],
-        button[aria-label="Pause"],
-        .player-controls,
-        .player-controls__buttons { display: none !important; }
-
-        /* ── Play overlay on cards / album art ───────────────────── */
-        [data-testid="card-click-handler"] button[data-testid="play-button"],
-        .CardButton { display: none !important; }
-
-        /* ── Volume, seek bar, repeat, shuffle ───────────────────── */
-        [data-testid="volume-bar"],
-        [data-testid="playback-progressbar"],
-        [data-testid="control-button-repeat"],
-        [data-testid="control-button-shuffle"],
-        [data-testid="control-button-skip-forward"],
-        [data-testid="control-button-skip-back"],
-        .progress-bar,
-        .playback-bar,
-        .volume-bar { display: none !important; }
-
-        /* ── Browse-only banner (fixed at bottom) ────────────────── */
-        #setengine-browse-banner {
-          position: fixed; bottom: 0; left: 0; right: 0;
-          height: 36px; display: flex; align-items: center; justify-content: center;
-          background: #181818; border-top: 1px solid #282828;
-          color: #b3b3b3; font-size: 12px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-          letter-spacing: 0.4px; z-index: 99999; pointer-events: none;
-          user-select: none;
-        }
-      `;
-
-      const SPOTIFY_DISABLE_PLAYBACK_JS = `
-        (function() {
-          if (window.__setengine_playback_blocked) return;
-          window.__setengine_playback_blocked = true;
-
-          // Neuter the Audio constructor so no <audio> element can play
-          const OrigAudio = window.Audio;
-          window.Audio = function() {
-            const a = new OrigAudio();
-            a.play = function() { return Promise.reject(new DOMException('Blocked by SetEngine', 'NotAllowedError')); };
-            Object.defineProperty(a, 'src', { set: function() {}, get: function() { return ''; } });
-            return a;
-          };
-          window.Audio.prototype = OrigAudio.prototype;
-
-          // Block play() on any HTMLMediaElement
-          const origPlay = HTMLMediaElement.prototype.play;
-          HTMLMediaElement.prototype.play = function() {
-            return Promise.reject(new DOMException('Blocked by SetEngine', 'NotAllowedError'));
-          };
-
-          // Block MediaSource so EME/DRM can't even start
-          if (window.MediaSource) {
-            window.MediaSource = class FakeMediaSource {
-              constructor() { throw new DOMException('Blocked by SetEngine', 'NotSupportedError'); }
-              static isTypeSupported() { return false; }
-            };
-          }
-
-          // Inject the browse-only banner if not present
-          if (!document.getElementById('setengine-browse-banner')) {
-            var banner = document.createElement('div');
-            banner.id = 'setengine-browse-banner';
-            banner.textContent = 'BROWSE ONLY \\u2014 use the DOWNLOAD button in the toolbar to save songs';
-            document.body.appendChild(banner);
-          }
-        })();
-      `;
-
-      const injectSpotifyBrowseMode = () => {
-        if (view.webContents.isDestroyed()) return;
-        view.webContents.insertCSS(SPOTIFY_DISABLE_PLAYBACK_CSS).catch(() => {});
-        view.webContents.executeJavaScript(SPOTIFY_DISABLE_PLAYBACK_JS, true).catch(() => {});
-      };
-
-      view.webContents.on('did-finish-load', injectSpotifyBrowseMode);
-      view.webContents.on('did-navigate-in-page', injectSpotifyBrowseMode);
-      // Also inject after a short delay to catch late SPA hydration
-      view.webContents.on('dom-ready', () => {
-        setTimeout(injectSpotifyBrowseMode, 500);
-      });
-    }
-
-    // Order matters here. We attach + setBounds BEFORE loadURL so the SPA
-    // sees the right viewport on its very first paint. Spotify in particular
-    // reads window.innerWidth/innerHeight during its hydration step and
-    // doesn't recompute its layout on later resizes for the icon/control
-    // sizing tier — leaving Spotify with a 0×0 boot viewport produces
-    // disproportionate icons and missing controls.
-    if (initialBounds) {
-      mainWindow.contentView.addChildView(view);
-      view.setBounds(initialBounds);
-    }
-
-    view.webContents.loadURL(source.entryUrl);
-
-    const record = { view, attached: !!initialBounds, source };
-    browserViews.set(sourceId, record);
-    return record;
-  }
-
-  function attachSource(sourceId, bounds) {
-    if (!isKnownSource(sourceId)) return false;
-
-    // Detach whoever is currently attached
-    if (activeBrowserSource && activeBrowserSource !== sourceId) {
-      const prev = browserViews.get(activeBrowserSource);
-      if (prev && prev.attached) {
-        mainWindow.contentView.removeChildView(prev.view);
-        prev.attached = false;
-      }
-    }
-
-    // Hand the initial bounds into getOrCreateView so first-launch sizing
-    // happens before loadURL fires (see comment in getOrCreateView).
-    const record = getOrCreateView(sourceId, bounds);
-    if (!record) return false;
-
-    if (!record.attached) {
-      mainWindow.contentView.addChildView(record.view);
-      record.attached = true;
-    }
-    if (bounds) {
-      record.view.setBounds(bounds);
-    }
-    activeBrowserSource = sourceId;
-    return true;
-  }
-
-  function activeRecord() {
-    return activeBrowserSource ? browserViews.get(activeBrowserSource) : null;
-  }
-
-  ipcMain.handle('browser:open', (event, bounds, sourceId) => {
-    const target = isKnownSource(sourceId) ? sourceId : (settingsManager.get('preferredSource') || 'youtube-music');
-    return attachSource(target, bounds);
-  });
-
-  ipcMain.handle('browser:set-source', (event, sourceId, bounds) => {
-    return attachSource(sourceId, bounds);
-  });
-
-  ipcMain.handle('browser:resize', (event, bounds) => {
-    const rec = activeRecord();
-    if (rec && bounds) {
-      rec.view.setBounds(bounds);
-    }
-  });
-
-  ipcMain.handle('browser:close', () => {
-    // Detach but do NOT destroy. Preserves session and playback so the next
-    // browser:open resumes exactly where the user left off.
-    const rec = activeRecord();
-    if (rec && rec.attached) {
-      mainWindow.contentView.removeChildView(rec.view);
-      rec.attached = false;
-    }
-    activeBrowserSource = null;
-    return true;
-  });
-
-  ipcMain.handle('browser:get-url', () => {
-    const rec = activeRecord();
-    if (rec && !rec.view.webContents.isDestroyed()) {
-      return rec.view.webContents.getURL();
-    }
-    return null;
-  });
-
-  ipcMain.handle('browser:get-source', () => activeBrowserSource);
-
-  ipcMain.handle('browser:back', () => {
-    const rec = activeRecord();
-    if (rec && rec.view.webContents.canGoBack()) {
-      rec.view.webContents.goBack();
-    }
-  });
-
-  ipcMain.handle('browser:forward', () => {
-    const rec = activeRecord();
-    if (rec && rec.view.webContents.canGoForward()) {
-      rec.view.webContents.goForward();
-    }
-  });
-
-  ipcMain.handle('browser:refresh', () => {
-    const rec = activeRecord();
-    if (rec) {
-      rec.view.webContents.reload();
-    }
-  });
-
-  // Scrape visible song rows from the currently active source. Each source
-  // ships its own DOM-walking script via SOURCES[id].scrapeScript. Used by the
-  // Browser tab DOWNLOAD button to show a picker of exactly what the user
-  // sees on screen.
-  ipcMain.handle('browser:scrape-results', async () => {
-    const rec = activeRecord();
-    if (!rec || rec.view.webContents.isDestroyed()) {
-      return { success: false, error: 'Browser is not open' };
-    }
-    try {
-      const results = await rec.view.webContents.executeJavaScript(rec.source.scrapeScript, true);
-      return {
-        success: true,
-        source: rec.source.id,
-        results: Array.isArray(results) ? results : [],
-      };
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  });
+  registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, settingsManager);
 
   // Detect aria2c first (cheap `which` call) so the very first download already
   // knows whether to route through the accelerator. Fire-and-forget — if a
@@ -566,9 +160,8 @@ const createWindow = () => {
     }
   });
 
-  // spotdl health check (informational at boot — the renderer pulls
-  // `spotdl:health` and decides whether to nag the user based on
-  // preferredSource).
+  // spotdl health check (informational at boot — only needed for Spotify links,
+  // and the Download page does a just-in-time check before queueing one).
   spotdl.getHealth().then((health) => {
     if (!health.version) {
       console.log('[SetEngine] spotdl not detected on PATH. Spotify downloads will require `brew install spotdl` (or `pipx install spotdl`).');
@@ -592,18 +185,6 @@ const createWindow = () => {
 };
 
 app.whenReady().then(async () => {
-  // Castlabs Electron for Content Security: wait for Widevine CDM to be
-  // downloaded and installed before anything touches a WebContentsView.
-  // Without this, Spotify's EME/DRM path reports "No supported keysystem".
-  try {
-    await components.whenReady();
-    console.log('[SetEngine] Widevine CDM status:', components.status());
-  } catch {
-    // components.whenReady() may not exist on stock Electron — the try/catch
-    // lets the app start gracefully without DRM support.
-    console.warn('[SetEngine] components API not available — DRM playback disabled');
-  }
-
   // Wire the setengine-audio:// handler. The renderer builds URLs of the form
   //   setengine-audio://local/<base64url-encoded absolute path>
   // We encode the path so '/' and Unicode characters survive URL parsing
@@ -700,6 +281,12 @@ app.whenReady().then(async () => {
 });
 
 app.on('before-quit', () => {
+  // Kill any in-flight downloader children first, otherwise the hard exit below
+  // orphans running yt-dlp / spotdl (and their ffmpeg / aria2c) processes, which
+  // would keep downloading after the app is gone.
+  try { if (ytDlp) ytDlp.killAll(); } catch (_) { /* ignore */ }
+  try { if (spotdl) spotdl.killAll(); } catch (_) { /* ignore */ }
+
   // The --use-mock-keychain flag causes a known bug on macOS where the mock
   // keychain thread fails to terminate cleanly, resulting in an infinite
   // hang (beachball) when the app tries to gracefully quit. We bypass it

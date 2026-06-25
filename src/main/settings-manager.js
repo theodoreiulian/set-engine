@@ -17,10 +17,6 @@ const DEFAULTS = {
   filenameTemplate: '%(title)s',
   autoUpdateYtdlp: true,
   showDisclaimer: true, // Show first-launch disclaimer
-  // Which embedded music source the Browser tab opens by default. Mirrors the
-  // ids in src/main/sources.js. Also used to gate spotdl health prompts so YT
-  // Music users aren't pestered about a tool they don't need.
-  preferredSource: 'youtube-music',
   // Cross-check detected BPM against free external databases (Deezer +, if a key
   // is set, GetSongBPM). When off, BPM tagging is purely local/offline.
   bpmLookupOnline: true,
@@ -28,8 +24,6 @@ const DEFAULTS = {
   // Deezer. Their TOS requires a visible "Powered by GetSongBPM" attribution
   // backlink, which the Settings page shows whenever a key is present.
   getSongBpmApiKey: '',
-  // When true, the "Spotify — Browse Only" warning popup is suppressed.
-  spotifyBrowseWarningDismissed: false,
 };
 
 export default class SettingsManager {
@@ -52,13 +46,8 @@ export default class SettingsManager {
         filenameTemplate: { type: 'string' },
         autoUpdateYtdlp: { type: 'boolean' },
         showDisclaimer: { type: 'boolean' },
-        preferredSource: {
-          type: 'string',
-          enum: ['youtube-music', 'spotify'],
-        },
         bpmLookupOnline: { type: 'boolean' },
         getSongBpmApiKey: { type: 'string' },
-        spotifyBrowseWarningDismissed: { type: 'boolean' },
       },
     });
 

@@ -34,35 +34,6 @@ contextBridge.exposeInMainWorld('setengine', {
     return () => ipcRenderer.removeListener('download:queue-update', handler);
   },
 
-  // ── Embedded Browser (per-source) ─────────────────────────────────
-  openBrowser: (bounds, source) => ipcRenderer.invoke('browser:open', bounds, source),
-  setBrowserSource: (source, bounds) => ipcRenderer.invoke('browser:set-source', source, bounds),
-  resizeBrowser: (bounds) => ipcRenderer.invoke('browser:resize', bounds),
-  closeBrowser: () => ipcRenderer.invoke('browser:close'),
-  getBrowserSource: () => ipcRenderer.invoke('browser:get-source'),
-  getAuthStatus: (source) => ipcRenderer.invoke('browser:auth-status', source),
-  extractCookies: (source) => ipcRenderer.invoke('browser:extract-cookies', source),
-  onAuthChange: (cb) => {
-    const handler = (_e, status) => cb(status);
-    ipcRenderer.on('browser:auth-change', handler);
-    return () => ipcRenderer.removeListener('browser:auth-change', handler);
-  },
-  onBrowserNavigate: (cb) => {
-    const handler = (_e, url) => cb(url);
-    ipcRenderer.on('browser:navigate', handler);
-    return () => ipcRenderer.removeListener('browser:navigate', handler);
-  },
-  onBrowserLoadFailed: (cb) => {
-    const handler = (_e, data) => cb(data);
-    ipcRenderer.on('browser:load-failed', handler);
-    return () => ipcRenderer.removeListener('browser:load-failed', handler);
-  },
-  browserBack: () => ipcRenderer.invoke('browser:back'),
-  browserForward: () => ipcRenderer.invoke('browser:forward'),
-  browserRefresh: () => ipcRenderer.invoke('browser:refresh'),
-  getBrowserUrl: () => ipcRenderer.invoke('browser:get-url'),
-  scrapePageResults: () => ipcRenderer.invoke('browser:scrape-results'),
-
   // ── Settings ──────────────────────────────────────────────────────
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
@@ -95,11 +66,10 @@ contextBridge.exposeInMainWorld('setengine', {
     return () => ipcRenderer.removeListener('tags:progress', handler);
   },
 
-  // ── URL Detection ─────────────────────────────────────────────────
-  detectURL: (url) => ipcRenderer.invoke('url:detect', url),
+  // ── URL Classification ────────────────────────────────────────────
+  // Identify a pasted link's source (youtube-music | spotify) and shape
+  // (track | playlist) so the Download page can validate before queueing.
   classifyURL: (url) => ipcRenderer.invoke('url:classify', url),
-  searchVideos: (query) => ipcRenderer.invoke('ytmusic:search', query),
-  searchSpotify: (query) => ipcRenderer.invoke('spotify:search', query),
 
   // ── System ────────────────────────────────────────────────────────
   openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
