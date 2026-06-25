@@ -32,33 +32,53 @@ export class QueuePage {
 
   render(container) {
     this.container = container;
+    container.classList.add('page-host');
 
-    // Page header
-    const header = document.createElement('div');
-    header.className = 'page-header flex justify-between items-center';
+    // Page shell: dark-gray topbar (title + CLEAR action) over a scrolling body,
+    // matching the Match Maker / Set Maker layout.
+    const shell = document.createElement('div');
+    shell.className = 'page-shell';
+
+    const topbar = document.createElement('div');
+    topbar.className = 'page-topbar';
 
     const title = document.createElement('h1');
     title.className = 'page-title';
-    title.textContent = 'Queue';
-    header.appendChild(title);
+    title.textContent = 'Download Queue';
+    topbar.appendChild(title);
 
+    const actions = document.createElement('div');
+    actions.className = 'page-topbar-actions';
     const clearBtn = document.createElement('button');
     clearBtn.className = 'btn-secondary btn-sm';
     clearBtn.id = 'queue-clear-completed-btn';
     clearBtn.textContent = 'CLEAR';
     clearBtn.addEventListener('click', () => this.handleClearAll());
-    header.appendChild(clearBtn);
+    actions.appendChild(clearBtn);
+    topbar.appendChild(actions);
 
-    container.appendChild(header);
+    shell.appendChild(topbar);
+
+    const scroll = document.createElement('div');
+    scroll.className = 'page-body';
+    const body = document.createElement('div');
+    body.className = 'page-content';
+    scroll.appendChild(body);
+    shell.appendChild(scroll);
+    container.appendChild(shell);
 
     // Queue list
     this.queueList = document.createElement('div');
     this.queueList.className = 'flex flex-col';
     this.queueList.id = 'queue-list';
-    container.appendChild(this.queueList);
+    body.appendChild(this.queueList);
 
     // Load current queue
     this.loadQueue();
+  }
+
+  destroy() {
+    if (this.container) this.container.classList.remove('page-host');
   }
 
   async loadQueue() {

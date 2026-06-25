@@ -16,13 +16,26 @@ export class DownloadPage {
     this.downloadBtn = null;
   }
 
+  destroy() {
+    if (this.container) this.container.classList.remove('page-host');
+  }
+
   async render(container) {
     this.container = container;
+    container.classList.add('page-host');
 
-    const header = document.createElement('div');
-    header.className = 'page-header';
-    header.innerHTML = '<h1 class="page-title">Download</h1>';
-    container.appendChild(header);
+    // Page shell: dark-gray topbar with a green title over a scrolling body,
+    // matching the Match Maker / Set Maker layout.
+    const shell = document.createElement('div');
+    shell.className = 'page-shell';
+    shell.innerHTML = '<div class="page-topbar"><h1 class="page-title">Download</h1></div>';
+    const scroll = document.createElement('div');
+    scroll.className = 'page-body';
+    const body = document.createElement('div');
+    body.className = 'page-content page-content-narrow';
+    scroll.appendChild(body);
+    shell.appendChild(scroll);
+    container.appendChild(shell);
 
     // --- URL input ---
     const urlGroup = document.createElement('div');
@@ -37,7 +50,7 @@ export class DownloadPage {
       </div>
       <div class="form-helper">Works with YouTube / YouTube Music and Spotify. Press Enter or click DOWNLOAD — it figures out song vs. playlist/album automatically.</div>
     `;
-    container.appendChild(urlGroup);
+    body.appendChild(urlGroup);
 
     // --- Destination folder ---
     const folderGroup = document.createElement('div');
@@ -50,7 +63,7 @@ export class DownloadPage {
       </div>
       <div class="form-helper">Where downloads are saved. Changing it here is remembered for next time.</div>
     `;
-    container.appendChild(folderGroup);
+    body.appendChild(folderGroup);
 
     // --- Jump to queue ---
     const queueRow = document.createElement('div');
@@ -61,7 +74,7 @@ export class DownloadPage {
     queueBtn.textContent = 'VIEW DOWNLOAD QUEUE';
     queueBtn.addEventListener('click', () => this.app.navigateTo('queue'));
     queueRow.appendChild(queueBtn);
-    container.appendChild(queueRow);
+    body.appendChild(queueRow);
 
     // Refs + listeners
     this.urlInput = container.querySelector('#download-url-input');

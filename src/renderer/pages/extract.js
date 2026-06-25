@@ -49,16 +49,26 @@ export class ExtractPage {
 
   destroy() {
     if (this._unsub) { this._unsub(); this._unsub = null; }
+    if (this.container) this.container.classList.remove('page-host');
     this.app.extractState = { tracks: this.tracks, info: this.info, lastUrl: this.lastUrl };
   }
 
   render(container) {
     this.container = container;
+    container.classList.add('page-host');
 
-    const header = document.createElement('div');
-    header.className = 'page-header';
-    header.innerHTML = '<h1 class="page-title">Set Extraction</h1>';
-    container.appendChild(header);
+    // Page shell: dark-gray topbar with a green title over a scrolling body,
+    // matching the Match Maker / Set Maker layout.
+    const shell = document.createElement('div');
+    shell.className = 'page-shell';
+    shell.innerHTML = '<div class="page-topbar"><h1 class="page-title">Set Extraction</h1></div>';
+    const scroll = document.createElement('div');
+    scroll.className = 'page-body';
+    const body = document.createElement('div');
+    body.className = 'page-content page-content-narrow';
+    scroll.appendChild(body);
+    shell.appendChild(scroll);
+    container.appendChild(shell);
 
     const urlGroup = document.createElement('div');
     urlGroup.className = 'form-group';
@@ -72,7 +82,7 @@ export class ExtractPage {
       </div>
       <div class="form-helper">Identifies the tracks played in the set and lists them in play order. Recognition runs through your configured engine (AudD or ACRCloud) — set it up in Settings. Heads-up: no engine is perfect — unreleased IDs, bootlegs, mashups and heavily-effected sections may not resolve.</div>
     `;
-    container.appendChild(urlGroup);
+    body.appendChild(urlGroup);
 
     this.statusEl = document.createElement('div');
     this.statusEl.className = 'extract-status hidden';
@@ -83,11 +93,11 @@ export class ExtractPage {
       </div>
       <div class="progress-bar progress-lg mt-8"><div class="progress-fill" id="extract-progress-fill"></div></div>
     `;
-    container.appendChild(this.statusEl);
+    body.appendChild(this.statusEl);
 
     this.resultsEl = document.createElement('div');
     this.resultsEl.className = 'extract-results mt-24';
-    container.appendChild(this.resultsEl);
+    body.appendChild(this.resultsEl);
 
     this.urlInput = container.querySelector('#extract-url-input');
     this.startBtn = container.querySelector('#extract-start-btn');

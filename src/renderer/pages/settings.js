@@ -6,14 +6,26 @@ export class SettingsPage {
     this.container = null;
   }
 
+  destroy() {
+    if (this.container) this.container.classList.remove('page-host');
+  }
+
   render(container) {
     this.container = container;
+    container.classList.add('page-host');
 
-    // Page header
-    const header = document.createElement('div');
-    header.className = 'page-header';
-    header.innerHTML = '<h1 class="page-title">Settings</h1>';
-    container.appendChild(header);
+    // Page shell: dark-gray topbar with a green title over a scrolling body,
+    // matching the Match Maker / Set Maker layout.
+    const shell = document.createElement('div');
+    shell.className = 'page-shell';
+    shell.innerHTML = '<div class="page-topbar"><h1 class="page-title">Settings</h1></div>';
+    const scroll = document.createElement('div');
+    scroll.className = 'page-body';
+    const body = document.createElement('div');
+    body.className = 'page-content page-content-narrow';
+    scroll.appendChild(body);
+    shell.appendChild(scroll);
+    container.appendChild(shell);
 
     // Settings form
     const form = document.createElement('div');
@@ -88,7 +100,7 @@ export class SettingsPage {
       <div id="settings-spotdl-version" class="form-helper" style="margin-top: 12px;">Checking spotdl version…</div>`
     ));
 
-    container.appendChild(form);
+    body.appendChild(form);
 
     // --- Save Button ---
     const saveRow = document.createElement('div');
@@ -101,7 +113,7 @@ export class SettingsPage {
     saveBtn.style.padding = '12px 32px';
     saveBtn.addEventListener('click', () => this.handleSave());
     saveRow.appendChild(saveBtn);
-    container.appendChild(saveRow);
+    body.appendChild(saveRow);
 
     // Attach event listeners
     this.attachListeners();

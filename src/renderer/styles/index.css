@@ -704,6 +704,72 @@ select.input option {
   color: var(--text-primary);
 }
 
+/* --- Page Shell ---------------------------------------------------------
+   Shared chrome for the simple pages (Download, Download Queue, Set
+   Extraction, Settings) so they match the Match Maker / Set Maker layout:
+   a dark-gray topbar with a green uppercase title sitting above a black,
+   internally-scrolling body. Pages opt in by adding the `page-host` class to
+   .main-content in render() and removing it in destroy() (exactly like the
+   match-host / setmaker-host pattern). ----------------------------------- */
+.main-content.page-host {
+  padding: 0;
+  overflow: hidden;
+  display: block;
+}
+
+.page-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background: var(--bg-primary);
+}
+
+.page-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: calc(var(--titlebar-inset) + 16px) 24px 12px 24px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.page-shell .page-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+
+.page-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Full-width scroll container: the vertical scrollbar sits flush against the
+   window's right edge. The page gutter and max-width live on .page-content so
+   the scrollbar isn't pushed inward by the padding. */
+.page-body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.page-content {
+  padding: 24px 32px 32px 32px;
+}
+
+/* Constrain form/content-heavy pages so inputs and helper text don't stretch
+   edge-to-edge on a wide window. List-style pages (the queue) stay full width. */
+.page-content-narrow {
+  max-width: 780px;
+}
+
 /* --- URL Download Row (Download Page) --- */
 .url-download-row {
   display: flex;
