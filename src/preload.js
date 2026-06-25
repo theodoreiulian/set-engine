@@ -66,6 +66,18 @@ contextBridge.exposeInMainWorld('setengine', {
     return () => ipcRenderer.removeListener('tags:progress', handler);
   },
 
+  // ── Set Extraction ────────────────────────────────────────────────
+  // Identify every track in a DJ set behind a YouTube link. `extractSet`
+  // resolves with the final ordered tracklist; `onExtractProgress` streams
+  // { phase, percent, ... } updates while it runs.
+  extractSet: (url) => ipcRenderer.invoke('extract:start', url),
+  cancelExtraction: () => ipcRenderer.invoke('extract:cancel'),
+  onExtractProgress: (cb) => {
+    const handler = (_e, data) => cb(data);
+    ipcRenderer.on('extract:progress', handler);
+    return () => ipcRenderer.removeListener('extract:progress', handler);
+  },
+
   // ── URL Classification ────────────────────────────────────────────
   // Identify a pasted link's source (youtube-music | spotify) and shape
   // (track | playlist) so the Download page can validate before queueing.

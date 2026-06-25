@@ -24,6 +24,20 @@ const DEFAULTS = {
   // Deezer. Their TOS requires a visible "Powered by GetSongBPM" attribution
   // backlink, which the Settings page shows whenever a key is present.
   getSongBpmApiKey: '',
+
+  // ── Set Extraction (DJ-set tracklist identification) ──────────────────
+  // Which fingerprinting engine the Set Extraction page uses. Both need an API
+  // key (set below); neither works offline — song identification requires a
+  // reference database we don't ship.
+  recognizer: 'audd',           // 'audd' | 'acrcloud'
+  // AudD enterprise endpoint token (https://dashboard.audd.io). One request is
+  // billed per 12 s of audio; the first 300 are free.
+  auddApiToken: '',
+  // ACRCloud project credentials (https://console.acrcloud.com). The host is the
+  // project's identification endpoint, e.g. "identify-eu-west-1.acrcloud.com".
+  acrHost: '',
+  acrAccessKey: '',
+  acrAccessSecret: '',
 };
 
 export default class SettingsManager {
@@ -48,6 +62,11 @@ export default class SettingsManager {
         showDisclaimer: { type: 'boolean' },
         bpmLookupOnline: { type: 'boolean' },
         getSongBpmApiKey: { type: 'string' },
+        recognizer: { type: 'string', enum: ['audd', 'acrcloud'] },
+        auddApiToken: { type: 'string' },
+        acrHost: { type: 'string' },
+        acrAccessKey: { type: 'string' },
+        acrAccessSecret: { type: 'string' },
       },
     });
 

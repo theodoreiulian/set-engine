@@ -78,7 +78,7 @@ There is **no embedded browser, no `WebContentsView`, no per-source Electron ses
 
 `src/main/sources.js` is now a small **URL-classification + registry** module: `classifyUrl(url)` returns `{ source: 'youtube-music'|'spotify', kind: 'track'|'playlist', id? }` (or null), used by both `DownloadManager` and the `url:classify` IPC. The `SOURCES` registry holds only `{ id, label, downloader }` per source.
 
-`ipc-handlers.js` registers everything: queue ops (`download:url`, `:cancel`, `:retry`, `:queue`, `:clear`), settings, folder dialogs, dependency check, yt-dlp/spotdl health + auto-update, `url:classify`, and the Set Maker / Match / tagging handlers. `download:url` and `download:retry` pass `null` for cookies (unauthenticated). Add new IPC there.
+`ipc-handlers.js` registers everything: queue ops (`download:url`, `:cancel`, `:retry`, `:queue`, `:clear`), settings, folder dialogs, dependency check, yt-dlp/spotdl health + auto-update, `url:classify`, the Set Maker / Match / tagging handlers, and the Set Extraction handlers (`extract:start` / `extract:cancel`). `download:url` and `download:retry` pass `null` for cookies (unauthenticated). Add new IPC there.
 
 `main.js` also hosts the `setengine-audio://` protocol handler used by the Set Maker / Match views. It serves local audio files with **proper HTTP Range support** so the audio element can seek (and so M4A files with a trailing `moov` atom load at all — see the long comment there). Access is restricted to files under the user's music / downloads / home directories.
 
@@ -90,13 +90,19 @@ Single source of truth for the renderer ↔ main contract. Every channel exposed
 
 Vanilla JS, no framework. `App` (`renderer/app.js`) is a tiny page router: `PAGES` map → `new PageClass(this)` → `.render(container)`. Pages may implement `.destroy()` for teardown.
 
-Pages live in `renderer/pages/*` (`download`, `queue`, `match`, `setmaker`, `settings`). They build their DOM imperatively — no framework, no templates. Shared UI in `renderer/components/` (`modal.js`, `toast.js` with persistent-duration support). Shared flows in `renderer/` root: `tool-update.js` runs the parameterized auto-update sequence (`runYtdlpUpdateFlow` / `runSpotdlUpdateFlow`, both built on `runToolUpdateFlow`), used by both the startup outdated-yt-dlp modal in `app.js` and the Settings page UPDATE buttons.
+Pages live in `renderer/pages/*` (`download`, `queue`, `match`, `setmaker`, `extract`, `settings`). They build their DOM imperatively — no framework, no templates. Shared UI in `renderer/components/` (`modal.js`, `toast.js` with persistent-duration support). Shared flows in `renderer/` root: `tool-update.js` runs the parameterized auto-update sequence (`runYtdlpUpdateFlow` / `runSpotdlUpdateFlow`, both built on `runToolUpdateFlow`), used by both the startup outdated-yt-dlp modal in `app.js` and the Settings page UPDATE buttons.
 
 `App.setupIpcListeners()` forwards realtime download events to the current page if it's the queue page. Pass `data` through unchanged — do not override `status`.
 
 ### The Download page — `renderer/pages/download.js`
 
 The app's landing page. A single text box takes any YouTube / YouTube Music or Spotify link (song, playlist, or album); pressing Enter or clicking DOWNLOAD classifies it via `classifyURL`, rejects unrecognized links, runs a just-in-time check that `spotdl` is installed for Spotify links, then calls `downloadURL`. The **destination folder lives on this page** (a `.folder-display` with a BROWSE button) so there's no need to open Settings to change it — BROWSE persists `downloadFolder` to the settings store. After queueing, the input clears for the next paste; a button jumps to the Queue.
+
+### The Set Extraction page — `renderer/pages/extract.js`
+
+Paste a YouTube link to a DJ set; the tracks played are identified and listed in play order (display only — no export). The flow lives in `src/main/set-extractor.js` (`extractSet`): read info + download the audio at 128 kbps to a temp dir via `YtDlpWrapper`, hand the file to the selected recognizer, then merge consecutive duplicate hits (reusing `cleanTitle` / `primaryArtist` from `bpm-sources.js`) into the ordered tracklist. It is cancellable (AbortSignal) and always cleans up the temp file. Progress streams via `extract:progress` (`{ phase, percent }`); `extract:start` resolves with the final list, `extract:cancel` aborts the in-flight run.
+
+Recognition is pluggable (`src/main/recognizers/`): `getRecognizer(settings)` returns the **AudD** (`audd.js` — one enterprise-endpoint upload → timestamped tracks) or **ACRCloud** (`acrcloud.js` — ffmpeg-cut 12 s windows, each identified with an HMAC-SHA1-signed request) implementation, throwing a clear error if the engine's key is missing. Engine choice + keys live in Settings (`recognizer`, `auddApiToken`, `acrHost`, `acrAccessKey`, `acrAccessSecret`). No engine recognizes *every* track (unreleased IDs, bootlegs, mashups, and heavy effects defeat all of them) — the UI says so. All recognition HTTP runs in the **main process**, so the CSP is unaffected.
 
 ### CSP
 

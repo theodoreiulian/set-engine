@@ -8,6 +8,7 @@ import { writeRating, readRating, writeBpmKey } from './rating-writer.js';
 import { analyzeTrack } from './audio-analyzer.js';
 import { detectKeyBpm } from './key-bpm-detector.js';
 import { lookupBpm, reconcileBpm } from './bpm-sources.js';
+import { extractSet } from './set-extractor.js';
 
 const MATCH_AUDIO_EXTS = new Set([
   '.mp3', '.flac', '.wav', '.wave', '.aiff', '.aif',
@@ -510,6 +511,50 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
     } catch (err) {
       return { success: false, error: err.message };
     }
+  });
+
+  // ── Set Extraction ──────────────────────────────────────────────────
+  // Identify every track in a DJ set behind a YouTube link. Streams
+  // { phase, percent, ... } via `extract:progress` and resolves with the final
+  // ordered tracklist. Only one extraction runs at a time; a new start (or an
+  // explicit cancel) aborts any in-flight run.
+  let activeExtraction = null; // AbortController | null
+
+  ipcMain.handle('extract:start', async (event, url) => {
+    if (typeof url !== 'string' || !url.trim()) {
+      return { success: false, error: 'Paste a YouTube link to a DJ set.' };
+    }
+    const cls = classifyUrl(url);
+    if (!cls || cls.source !== 'youtube-music') {
+      return { success: false, error: 'That doesn\'t look like a YouTube link. Set Extraction works with YouTube / YouTube Music URLs.' };
+    }
+
+    if (activeExtraction) { try { activeExtraction.abort(); } catch (_) { /* ignore */ } }
+    const controller = new AbortController();
+    activeExtraction = controller;
+
+    const emit = (data) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('extract:progress', data);
+      }
+    };
+
+    try {
+      const settings = settingsManager.getAll();
+      return await extractSet(url, { ytDlp, settings, signal: controller.signal, onProgress: emit });
+    } catch (err) {
+      return { success: false, error: err.message };
+    } finally {
+      if (activeExtraction === controller) activeExtraction = null;
+    }
+  });
+
+  ipcMain.handle('extract:cancel', () => {
+    if (activeExtraction) {
+      try { activeExtraction.abort(); } catch (_) { /* ignore */ }
+      activeExtraction = null;
+    }
+    return { success: true };
   });
 
 }

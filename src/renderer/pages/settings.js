@@ -52,6 +52,26 @@ export class SettingsPage {
       <div class="form-helper" style="margin-top: 6px;">Optional: a free key from <a href="#" class="ext-link" data-href="https://getsongbpm.com/api">getsongbpm.com/api</a> adds a second source. Using it requires their attribution: <a href="#" class="ext-link" data-href="https://getsongbpm.com">Powered by GetSongBPM</a>.</div>`
     ));
 
+    // --- Set Extraction (song recognition) ---
+    form.appendChild(this.createFormGroup(
+      'Set Extraction — Song Recognition',
+      `<select class="input" id="settings-recognizer" style="max-width: 260px;">
+        <option value="audd">AudD (enterprise)</option>
+        <option value="acrcloud">ACRCloud</option>
+      </select>
+      <div class="form-helper" style="margin-top: 6px;">The engine the Set Extraction page uses to identify tracks in a DJ set. Both need an API key below — recognition can't run offline. No engine is perfect: unreleased IDs, bootlegs, mashups and heavily-effected sections may not resolve.</div>
+      <div id="settings-audd-fields" style="margin-top: 12px;">
+        <input type="password" class="input" id="settings-audd-token" placeholder="AudD API token" spellcheck="false" autocomplete="off" style="max-width: 360px;">
+        <div class="form-helper" style="margin-top: 6px;">Get a token at <a href="#" class="ext-link" data-href="https://dashboard.audd.io/">dashboard.audd.io</a>. Billed 1 request per 12 s of audio (first 300 free) — a 1 h set is ≈300 requests.</div>
+      </div>
+      <div id="settings-acr-fields" style="margin-top: 12px;">
+        <input type="text" class="input" id="settings-acr-host" placeholder="ACRCloud host (e.g. identify-eu-west-1.acrcloud.com)" spellcheck="false" autocomplete="off" style="max-width: 360px; margin-bottom: 8px;">
+        <input type="text" class="input" id="settings-acr-key" placeholder="Access key" spellcheck="false" autocomplete="off" style="max-width: 360px; margin-bottom: 8px;">
+        <input type="password" class="input" id="settings-acr-secret" placeholder="Access secret" spellcheck="false" autocomplete="off" style="max-width: 360px;">
+        <div class="form-helper" style="margin-top: 6px;">Create an Audio &amp; Video Recognition project at <a href="#" class="ext-link" data-href="https://console.acrcloud.com/">console.acrcloud.com</a> and copy its host + access key/secret.</div>
+      </div>`
+    ));
+
     // --- Auto-update yt-dlp ---
     form.appendChild(this.createFormGroup(
       '',
@@ -183,6 +203,12 @@ export class SettingsPage {
       updateSpotdlBtn.addEventListener('click', () => this.handleUpdateSpotdl());
     }
 
+    // Show only the credential fields relevant to the chosen recognizer.
+    const recognizerEl = document.getElementById('settings-recognizer');
+    if (recognizerEl) {
+      recognizerEl.addEventListener('change', () => this.syncRecognizerFields());
+    }
+
     // External links (e.g. the required GetSongBPM attribution) open in the
     // system browser rather than navigating the app's own window.
     this.container.querySelectorAll('a.ext-link').forEach((a) => {
@@ -225,9 +251,30 @@ export class SettingsPage {
 
       const keyEl = document.getElementById('settings-getsongbpm-key');
       if (keyEl) keyEl.value = settings.getSongBpmApiKey || '';
+
+      const recognizerEl = document.getElementById('settings-recognizer');
+      if (recognizerEl) recognizerEl.value = settings.recognizer || 'audd';
+      const auddTokenEl = document.getElementById('settings-audd-token');
+      if (auddTokenEl) auddTokenEl.value = settings.auddApiToken || '';
+      const acrHostEl = document.getElementById('settings-acr-host');
+      if (acrHostEl) acrHostEl.value = settings.acrHost || '';
+      const acrKeyEl = document.getElementById('settings-acr-key');
+      if (acrKeyEl) acrKeyEl.value = settings.acrAccessKey || '';
+      const acrSecretEl = document.getElementById('settings-acr-secret');
+      if (acrSecretEl) acrSecretEl.value = settings.acrAccessSecret || '';
+      this.syncRecognizerFields();
     } catch (err) {
       showToast('Failed to load settings', 'error');
     }
+  }
+
+  // Hide the credential block for whichever engine isn't selected.
+  syncRecognizerFields() {
+    const engine = document.getElementById('settings-recognizer')?.value || 'audd';
+    const auddFields = document.getElementById('settings-audd-fields');
+    const acrFields = document.getElementById('settings-acr-fields');
+    if (auddFields) auddFields.classList.toggle('hidden', engine !== 'audd');
+    if (acrFields) acrFields.classList.toggle('hidden', engine !== 'acrcloud');
   }
 
   async handleUpdateSpotdl() {
@@ -253,6 +300,11 @@ export class SettingsPage {
     const autoUpdateYtdlp = document.getElementById('settings-auto-update')?.checked ?? true;
     const bpmLookupOnline = document.getElementById('settings-bpm-online')?.checked ?? true;
     const getSongBpmApiKey = (document.getElementById('settings-getsongbpm-key')?.value || '').trim();
+    const recognizer = document.getElementById('settings-recognizer')?.value || 'audd';
+    const auddApiToken = (document.getElementById('settings-audd-token')?.value || '').trim();
+    const acrHost = (document.getElementById('settings-acr-host')?.value || '').trim();
+    const acrAccessKey = (document.getElementById('settings-acr-key')?.value || '').trim();
+    const acrAccessSecret = (document.getElementById('settings-acr-secret')?.value || '').trim();
 
     const settings = {
       audioQuality,
@@ -260,6 +312,11 @@ export class SettingsPage {
       autoUpdateYtdlp,
       bpmLookupOnline,
       getSongBpmApiKey,
+      recognizer,
+      auddApiToken,
+      acrHost,
+      acrAccessKey,
+      acrAccessSecret,
     };
 
     if (!window.setengine || !window.setengine.saveSettings) {

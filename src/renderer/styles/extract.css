@@ -1,0 +1,74 @@
+/* ============================================
+   Set Extraction page
+   ============================================ */
+
+.extract-status {
+  margin-top: 8px;
+}
+
+.extract-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.extract-results-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.extract-empty {
+  padding: 24px 0;
+  font-size: 13px;
+}
+
+.extract-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.extract-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+}
+
+.extract-row + .extract-row {
+  border-top: none;
+}
+
+.extract-row:hover {
+  background: var(--bg-tertiary);
+}
+
+.extract-row-num {
+  width: 28px;
+  flex-shrink: 0;
+  text-align: right;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.extract-row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.extract-row-time {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
