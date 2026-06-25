@@ -10,8 +10,10 @@
 // already confirmed a token exists.
 
 import { readFile } from 'node:fs/promises';
+import { backoff, parseRetryAfter } from './retry.js';
 
 const ENDPOINT = 'https://enterprise.audd.io/';
+const MAX_ATTEMPTS = 3;   // whole-file upload attempts on transient failure
 
 // AudD timestamps appear as either seconds ("123") or "m:ss" / "h:mm:ss".
 function parseOffset(v) {
@@ -63,21 +65,51 @@ export async function recognize(audioPath, { settings, signal, onProgress } = {}
   if (onProgress) onProgress({ done: 0, total: 1 });
 
   const buf = await readFile(audioPath);
-  const form = new FormData();
-  form.append('api_token', settings.auddApiToken);
-  form.append('every', '1');   // scan every 12 s window — continuous, nothing skipped
-  form.append('skip', '0');
-  form.append('return', 'apple_music,spotify');
-  form.append('file', new Blob([buf]), 'set.mp3');
 
-  const res = await fetch(ENDPOINT, { method: 'POST', body: form, signal });
-  if (!res.ok) {
-    throw new Error(`AudD request failed (HTTP ${res.status}).`);
-  }
-  const json = await res.json();
-  if (json && json.status === 'error') {
-    const msg = (json.error && json.error.error_message) || 'unknown error';
-    throw new Error(`AudD: ${msg}`);
+  // One whole-file upload, retried on transient failure (HTTP 429/5xx, network
+  // error, or AudD's in-body 901 "too many requests"). A transient blip must not
+  // throw away a multi-minute download + scan.
+  let json = null;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (signal && signal.aborted) throw new Error('Extraction cancelled.');
+    const last = attempt === MAX_ATTEMPTS - 1;
+
+    const form = new FormData();
+    form.append('api_token', settings.auddApiToken);
+    form.append('every', '1');   // scan every 12 s window — continuous, nothing skipped
+    form.append('skip', '0');
+    form.append('return', 'apple_music,spotify');
+    form.append('file', new Blob([buf]), 'set.mp3');
+
+    let res;
+    try {
+      res = await fetch(ENDPOINT, { method: 'POST', body: form, signal });
+    } catch (err) {
+      if (err && err.name === 'AbortError') throw new Error('Extraction cancelled.');
+      if (last) throw new Error(`AudD request failed: ${err.message}`);
+      await backoff(attempt, null, signal);
+      continue;
+    }
+
+    if (res.status === 429 || res.status >= 500) {
+      if (last) throw new Error(`AudD request failed (HTTP ${res.status}).`);
+      await backoff(attempt, parseRetryAfter(res.headers.get('retry-after')), signal);
+      continue;
+    }
+    if (!res.ok) throw new Error(`AudD request failed (HTTP ${res.status}).`);
+
+    json = await res.json();
+    if (json && json.status === 'error') {
+      const code = json.error && json.error.error_code;
+      const msg = (json.error && json.error.error_message) || 'unknown error';
+      if (code === 901 && !last) {   // rate-limited — back off and retry
+        await backoff(attempt, null, signal);
+        json = null;
+        continue;
+      }
+      throw new Error(`AudD: ${msg}`);
+    }
+    break;   // success
   }
 
   const tracks = flatten(json && json.result);

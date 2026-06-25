@@ -14,10 +14,23 @@
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import pLimit from 'p-limit';
+import { backoff, parseRetryAfter } from './retry.js';
 
-const SEGMENT_SEC = 12;   // sample length ACRCloud expects
-const STEP_SEC = 12;      // consecutive, non-overlapping → continuous coverage
+const SEGMENT_SEC = 12;   // sample length per identify request
+// 50% overlap (6 s step over a 12 s window): a track that straddles a window
+// boundary — exactly what happens at every mix transition, and for briefly
+// played tracks — still lands cleanly inside an adjacent window. Costs ~2× the
+// requests of non-overlapping scanning; the retry/backoff below absorbs the
+// extra rate pressure. Raise back to 12 to halve requests at some recall cost.
+const STEP_SEC = 6;
 const MIN_SEGMENT_BYTES = 1024;
+const MAX_ATTEMPTS = 5;    // per-window identify attempts before giving up
+
+// ACRCloud returns HTTP 200 even when throttled, flagging it in status.code:
+// 3003 = QPS limit exceeded, 3015 = service busy/limited — both transient, so
+// retry. (0 = match and 1001 = no result are terminal; auth/signature errors
+// aren't retryable.)
+const RETRYABLE_ACR_CODES = new Set([3003, 3015]);
 
 // Cap concurrent in-flight identifications. ACRCloud rate-limits per project and
 // we don't want to spawn dozens of ffmpeg cutters at once on long sets.
@@ -61,23 +74,61 @@ function buildSignature(accessSecret, accessKey, timestamp) {
   return crypto.createHmac('sha1', accessSecret).update(Buffer.from(stringToSign, 'utf-8')).digest('base64');
 }
 
+// Identify one sample, retrying transient failures (HTTP 429/5xx, network blips,
+// and ACRCloud's in-body throttle codes) with jittered exponential backoff so a
+// rate-limited window is never silently dropped. Returns the parsed JSON, or
+// null when it genuinely can't be identified / was cancelled.
 async function identifySegment(sampleBuf, settings, signal) {
   const host = String(settings.acrHost).replace(/^https?:\/\//, '').replace(/\/+$/, '');
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const signature = buildSignature(settings.acrAccessSecret, settings.acrAccessKey, timestamp);
+  const url = `https://${host}/v1/identify`;
 
-  const form = new FormData();
-  form.append('access_key', settings.acrAccessKey);
-  form.append('data_type', 'audio');
-  form.append('signature_version', '1');
-  form.append('signature', signature);
-  form.append('timestamp', timestamp);
-  form.append('sample_bytes', String(sampleBuf.length));
-  form.append('sample', new Blob([sampleBuf]), 'sample.wav');
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (signal && signal.aborted) return null;
+    const last = attempt === MAX_ATTEMPTS - 1;
 
-  const res = await fetch(`https://${host}/v1/identify`, { method: 'POST', body: form, signal });
-  if (!res.ok) return null;
-  return res.json();
+    // Rebuild timestamp + signature + form every attempt: the signature is
+    // timestamp-bound, so reusing a stale one after a backoff would be rejected.
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const signature = buildSignature(settings.acrAccessSecret, settings.acrAccessKey, timestamp);
+    const form = new FormData();
+    form.append('access_key', settings.acrAccessKey);
+    form.append('data_type', 'audio');
+    form.append('signature_version', '1');
+    form.append('signature', signature);
+    form.append('timestamp', timestamp);
+    form.append('sample_bytes', String(sampleBuf.length));
+    form.append('sample', new Blob([sampleBuf]), 'sample.wav');
+
+    let res;
+    try {
+      res = await fetch(url, { method: 'POST', body: form, signal });
+    } catch (err) {
+      if (err && err.name === 'AbortError') return null;   // cancelled — stop
+      if (last) return null;
+      await backoff(attempt, null, signal);                // network blip — retry
+      continue;
+    }
+
+    // Transient HTTP: 429 (rate limit) / 5xx (server). Honour Retry-After.
+    if (res.status === 429 || res.status >= 500) {
+      if (last) return null;
+      await backoff(attempt, parseRetryAfter(res.headers.get('retry-after')), signal);
+      continue;
+    }
+    if (!res.ok) return null;   // other 4xx (auth / bad request) — not retryable
+
+    let json;
+    try { json = await res.json(); } catch (_) { return null; }
+
+    // In-body throttle codes arrive with HTTP 200 — retry those too.
+    const code = (json && json.status && typeof json.status.code === 'number') ? json.status.code : null;
+    if (code != null && RETRYABLE_ACR_CODES.has(code) && !last) {
+      await backoff(attempt, null, signal);
+      continue;
+    }
+    return json;
+  }
+  return null;
 }
 
 function artistsToString(artists) {
