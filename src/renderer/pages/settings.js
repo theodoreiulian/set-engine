@@ -1,5 +1,4 @@
 import { showToast } from '../components/toast.js';
-import { runYtdlpUpdateFlow, runSpotdlUpdateFlow } from '../tool-update.js';
 
 export class SettingsPage {
   constructor(app) {
@@ -81,14 +80,12 @@ export class SettingsPage {
       </label>`
     ));
 
-    // --- yt-dlp version + Manual Update ---
+    // --- Tool versions (yt-dlp / spotdl / accelerator) ---
     form.appendChild(this.createFormGroup(
       'Tools',
       `<div id="settings-ytdlp-version" class="form-helper" style="margin-bottom: 4px;">Checking yt-dlp version…</div>
       <div id="settings-downloader" class="form-helper" style="margin-bottom: 8px;">Checking accelerator…</div>
-      <button class="btn-secondary" id="settings-update-ytdlp-btn" style="margin-right: 8px;">UPDATE YT-DLP</button>
-      <div id="settings-spotdl-version" class="form-helper" style="margin-top: 12px; margin-bottom: 8px;">Checking spotdl version…</div>
-      <button class="btn-secondary" id="settings-update-spotdl-btn">UPDATE SPOTDL</button>`
+      <div id="settings-spotdl-version" class="form-helper" style="margin-top: 12px;">Checking spotdl version…</div>`
     ));
 
     container.appendChild(form);
@@ -193,16 +190,6 @@ export class SettingsPage {
   }
 
   attachListeners() {
-    const updateBtn = document.getElementById('settings-update-ytdlp-btn');
-    if (updateBtn) {
-      updateBtn.addEventListener('click', () => this.handleUpdateYtDlp());
-    }
-
-    const updateSpotdlBtn = document.getElementById('settings-update-spotdl-btn');
-    if (updateSpotdlBtn) {
-      updateSpotdlBtn.addEventListener('click', () => this.handleUpdateSpotdl());
-    }
-
     // Show only the credential fields relevant to the chosen recognizer.
     const recognizerEl = document.getElementById('settings-recognizer');
     if (recognizerEl) {
@@ -277,23 +264,6 @@ export class SettingsPage {
     if (acrFields) acrFields.classList.toggle('hidden', engine !== 'acrcloud');
   }
 
-  async handleUpdateSpotdl() {
-    const btn = document.getElementById('settings-update-spotdl-btn');
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = 'UPDATING...';
-    }
-    try {
-      await runSpotdlUpdateFlow();
-      this.loadSpotdlHealth();
-    } finally {
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = 'UPDATE SPOTDL';
-      }
-    }
-  }
-
   async handleSave() {
     const audioQuality = parseInt(document.getElementById('settings-quality')?.value || '320', 10);
     const filenameTemplate = document.getElementById('settings-filename-template')?.value || '%(title)s';
@@ -329,23 +299,6 @@ export class SettingsPage {
       showToast('Settings saved', 'success');
     } catch (err) {
       showToast(err.message || 'Failed to save settings', 'error');
-    }
-  }
-
-  async handleUpdateYtDlp() {
-    const btn = document.getElementById('settings-update-ytdlp-btn');
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = 'UPDATING...';
-    }
-    try {
-      await runYtdlpUpdateFlow();
-      this.loadYtDlpHealth();
-    } finally {
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = 'UPDATE YT-DLP';
-      }
     }
   }
 }
