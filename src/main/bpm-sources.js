@@ -5,10 +5,8 @@
 // be confident a tempo is right (and catch the octave/metrical errors a pure
 // onset analysis occasionally makes).
 //
-// Sources (all free):
-//   • Deezer  — keyless public API. /search → best match → /track/{id}.bpm
-//   • GetSongBPM — needs a free API key (set in Settings) AND a visible
-//                  "Powered by GetSongBPM" attribution backlink (their TOS).
+// Source (free, keyless):
+//   • Deezer  — public API. /search → best match → /track/{id}.bpm
 //
 // `lookupBpm()` is fail-soft: any network/parse/timeout error yields no result
 // for that source, never throws into the tagging pipeline. `reconcileBpm()`
@@ -23,7 +21,6 @@
 
 const USER_AGENT = 'SetEngine/1.0 (+https://github.com/setengine)';
 const DEEZER_TIMEOUT_MS = 6000;   // budget covers a few /track fetches when probing versions
-const GETSONGBPM_TIMEOUT_MS = 5000;
 const MATCH_THRESHOLD = 0.5;     // minimum match score to trust a DB hit
 
 // Metrical relationships treated as "the same tempo, different counting level".
@@ -162,35 +159,6 @@ async function deezerLookup(title, artist, durSec, signal) {
   return null;
 }
 
-// ── GetSongBPM (free key + required attribution backlink) ────────────────
-
-async function getSongBpmLookup(title, artist, durSec, apiKey, signal) {
-  const lookup = `song:${title}${artist ? ` artist:${artist}` : ''}`;
-  const url = `https://api.getsongbpm.com/search/?api_key=${encodeURIComponent(apiKey)}`
-    + `&type=both&lookup=${encodeURIComponent(lookup)}`;
-  const res = await fetchJson(url, signal);
-  const list = res && Array.isArray(res.search) ? res.search : null;
-  if (!list || !list.length) return null;
-
-  let best = null, bestScore = 0;
-  for (const it of list) {
-    const sc = matchScore(title, artist, durSec, it.song_title, it.artist && it.artist.name, null);
-    if (sc > bestScore) { bestScore = sc; best = it; }
-  }
-  if (!best || bestScore < MATCH_THRESHOLD) return null;
-
-  let tempo = Number(best.tempo);
-  if (!tempo || tempo <= 0) {
-    // Search hit lacked tempo — fetch the song resource for it.
-    const detailUrl = `https://api.getsongbpm.com/song/?api_key=${encodeURIComponent(apiKey)}`
-      + `&id=${encodeURIComponent(best.song_id)}`;
-    const d = await fetchJson(detailUrl, signal);
-    tempo = d && d.song && Number(d.song.tempo);
-  }
-  if (!tempo || tempo <= 0) return null;
-  return { source: 'getsongbpm', bpm: tempo, matchScore: bestScore };
-}
-
 // ── Public: lookup ───────────────────────────────────────────────────────
 
 // Per-session cache so repeated tracks (and concurrent batch items) hit the
@@ -198,27 +166,23 @@ async function getSongBpmLookup(title, artist, durSec, apiKey, signal) {
 const lookupCache = new Map();
 
 // Returns Array<{ source, bpm, matchScore }> (possibly empty). Never throws.
-export async function lookupBpm({ title, artist, durationSec, getSongBpmApiKey } = {}) {
+export async function lookupBpm({ title, artist, durationSec } = {}) {
   const ct = cleanTitle(title);
   const ca = primaryArtist(artist);
   if (!ct) return [];
 
-  const cacheKey = `${ca.toLowerCase()} ${ct.toLowerCase()} ${getSongBpmApiKey ? 'k' : ''}`;
+  const cacheKey = `${ca.toLowerCase()} ${ct.toLowerCase()}`;
   if (lookupCache.has(cacheKey)) return lookupCache.get(cacheKey);
 
-  const p = doLookup(ct, ca, durationSec, getSongBpmApiKey);
+  const p = doLookup(ct, ca, durationSec);
   lookupCache.set(cacheKey, p);
   return p;
 }
 
-async function doLookup(title, artist, durSec, apiKey) {
+async function doLookup(title, artist, durSec) {
   const results = [];
   const dz = await withTimeout((sig) => deezerLookup(title, artist, durSec, sig), DEEZER_TIMEOUT_MS);
   if (dz) results.push(dz);
-  if (apiKey) {
-    const gs = await withTimeout((sig) => getSongBpmLookup(title, artist, durSec, apiKey, sig), GETSONGBPM_TIMEOUT_MS);
-    if (gs) results.push(gs);
-  }
   return results;
 }
 
@@ -236,10 +200,9 @@ function octaveRel(a, b) {
   for (const k of OCTAVE_RATIOS) if (agree(a, k * b)) return k;
   return 0;
 }
-// Curated DB (GetSongBPM) outranks Deezer; match quality breaks ties.
+// Deezer is the only external source; rank by match quality.
 function trust(e) {
-  const base = e.source === 'getsongbpm' ? 2 : 1;
-  return base + Math.min(1, e.matchScore || 0);
+  return 1 + Math.min(1, e.matchScore || 0);
 }
 
 // local: { bpm, bpmConfidence|confidence, candidates: [{bpm,...}] }

@@ -17,13 +17,9 @@ const DEFAULTS = {
   filenameTemplate: '%(title)s',
   autoUpdateYtdlp: true,
   showDisclaimer: true, // Show first-launch disclaimer
-  // Cross-check detected BPM against free external databases (Deezer +, if a key
-  // is set, GetSongBPM). When off, BPM tagging is purely local/offline.
+  // Cross-check detected BPM against the free, keyless Deezer database. When off,
+  // BPM tagging is purely local/offline.
   bpmLookupOnline: true,
-  // Optional free GetSongBPM API key. If set, GetSongBPM is queried alongside
-  // Deezer. Their TOS requires a visible "Powered by GetSongBPM" attribution
-  // backlink, which the Settings page shows whenever a key is present.
-  getSongBpmApiKey: '',
 
   // ── Set Extraction (DJ-set tracklist identification) ──────────────────
   // Which fingerprinting engine the Set Extraction page uses. Both need an API
@@ -61,7 +57,6 @@ export default class SettingsManager {
         autoUpdateYtdlp: { type: 'boolean' },
         showDisclaimer: { type: 'boolean' },
         bpmLookupOnline: { type: 'boolean' },
-        getSongBpmApiKey: { type: 'string' },
         recognizer: { type: 'string', enum: ['audd', 'acrcloud'] },
         auddApiToken: { type: 'string' },
         acrHost: { type: 'string' },

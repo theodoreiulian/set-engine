@@ -96,8 +96,8 @@ async function walkAudioDir(dirPath, relativeBase, out) {
 }
 
 export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, settingsManager) {
-  // Open an external https URL in the user's default browser (e.g. the required
-  // GetSongBPM attribution backlink). Only http/https — never local files.
+  // Open an external https URL in the user's default browser (e.g. the AudD /
+  // ACRCloud dashboard links in Settings). Only http/https — never local files.
   ipcMain.handle('app:open-external', async (event, url) => {
     if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
       return { success: false, error: 'invalid url' };
@@ -342,7 +342,7 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
   // Detect missing BPM/key for a batch of files and write the values back into
   // the originals. Input: { items: [{ id, path, need, title?, artist? }] } where
   // need ∈ 'bpm'|'key'|'both'. For BPM, the local DSP estimate is cross-checked
-  // against free external databases (Deezer + optional GetSongBPM) and the
+  // against the free Deezer database and the
   // consensus value — or a flagged best-guess on conflict — is what gets written.
   // Streams per-file results via `tags:progress` as each finishes, and returns
   // the full results array when all settle. Each result: { id, path, bpm?,
@@ -353,7 +353,6 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
     if (items.length === 0) return { success: true, results: [] };
 
     const online = settingsManager.get('bpmLookupOnline') !== false;
-    const getSongBpmApiKey = settingsManager.get('getSongBpmApiKey') || '';
 
     const emit = (data) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
@@ -382,7 +381,6 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
               title: item.title,
               artist: item.artist,
               durationSec: det.durationSec,
-              getSongBpmApiKey,
             });
           }
           const rec = reconcileBpm({ local: det, externals });

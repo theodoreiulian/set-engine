@@ -58,9 +58,7 @@ export class SettingsPage {
         <input type="checkbox" id="settings-bpm-online" checked>
         <span>Cross-check detected BPM against online databases</span>
       </label>
-      <div class="form-helper" style="margin-top: 6px;">The local analyzer always runs. When on, it's verified against free databases (Deezer, and GetSongBPM if a key is set) and any tempo that can't be confirmed is flagged for review. Turn off to tag fully offline.</div>
-      <input type="text" class="input" id="settings-getsongbpm-key" placeholder="GetSongBPM API key (optional)" spellcheck="false" autocomplete="off" style="margin-top: 10px; max-width: 360px;">
-      <div class="form-helper" style="margin-top: 6px;">Optional: a free key from <a href="#" class="ext-link" data-href="https://getsongbpm.com/api">getsongbpm.com/api</a> adds a second source. Using it requires their attribution: <a href="#" class="ext-link" data-href="https://getsongbpm.com">Powered by GetSongBPM</a>.</div>`
+      <div class="form-helper" style="margin-top: 6px;">The local analyzer always runs. When on, it's cross-checked against the free, keyless Deezer database and any tempo that can't be confirmed is flagged for review. Turn off to tag fully offline.</div>`
     ));
 
     // --- Set Extraction (song recognition) ---
@@ -208,7 +206,7 @@ export class SettingsPage {
       recognizerEl.addEventListener('change', () => this.syncRecognizerFields());
     }
 
-    // External links (e.g. the required GetSongBPM attribution) open in the
+    // External links (e.g. the AudD / ACRCloud dashboards) open in the
     // system browser rather than navigating the app's own window.
     this.container.querySelectorAll('a.ext-link').forEach((a) => {
       a.addEventListener('click', (e) => {
@@ -248,9 +246,6 @@ export class SettingsPage {
         if (bpmOnlineEl) bpmOnlineEl.checked = settings.bpmLookupOnline;
       }
 
-      const keyEl = document.getElementById('settings-getsongbpm-key');
-      if (keyEl) keyEl.value = settings.getSongBpmApiKey || '';
-
       const recognizerEl = document.getElementById('settings-recognizer');
       if (recognizerEl) recognizerEl.value = settings.recognizer || 'audd';
       const auddTokenEl = document.getElementById('settings-audd-token');
@@ -281,7 +276,6 @@ export class SettingsPage {
     const filenameTemplate = document.getElementById('settings-filename-template')?.value || '%(title)s';
     const autoUpdateYtdlp = document.getElementById('settings-auto-update')?.checked ?? true;
     const bpmLookupOnline = document.getElementById('settings-bpm-online')?.checked ?? true;
-    const getSongBpmApiKey = (document.getElementById('settings-getsongbpm-key')?.value || '').trim();
     const recognizer = document.getElementById('settings-recognizer')?.value || 'audd';
     const auddApiToken = (document.getElementById('settings-audd-token')?.value || '').trim();
     const acrHost = (document.getElementById('settings-acr-host')?.value || '').trim();
@@ -293,7 +287,6 @@ export class SettingsPage {
       filenameTemplate,
       autoUpdateYtdlp,
       bpmLookupOnline,
-      getSongBpmApiKey,
       recognizer,
       auddApiToken,
       acrHost,

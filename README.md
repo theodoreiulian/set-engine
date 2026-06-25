@@ -14,7 +14,7 @@ SetEngine wraps [yt-dlp](https://github.com/yt-dlp/yt-dlp) (and [spotdl](https:/
 - **Playlist & album support** — paste a playlist/album URL and every track downloads in parallel
 - **Spotify** — Spotify links download through spotdl from the same box (install spotdl once)
 - **Concurrent queue** — 5 simultaneous downloads, aria2c-accelerated when available (~2× speed)
-- **BPM & key detection** — auto-tags audio files during download or after import (GetSongBPM + built-in DSP)
+- **BPM & key detection** — auto-tags audio files during download or after import (Deezer cross-check + built-in DSP)
 - **Match Maker** — harmonic mixing suggestions in real time (tier 1 = same key, tier 2 = ±1 semitone)
 - **Set Maker** — drag-and-drop setlists with tour metadata, key-compatible sequencing, and inline playback
 - **Rating workflow** — scrub through your library, rate tracks, auto-write rating/energy to file metadata
