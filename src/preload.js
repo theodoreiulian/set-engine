@@ -66,16 +66,29 @@ contextBridge.exposeInMainWorld('setengine', {
     return () => ipcRenderer.removeListener('tags:progress', handler);
   },
 
+  // -- Track downloads (Set Extraction) --
+  downloadTrack: (opts) => ipcRenderer.invoke('download:track', opts),
+  downloadTracks: (opts) => ipcRenderer.invoke('download:tracks', opts),
+
   // ── Set Extraction ────────────────────────────────────────────────
-  // Identify every track in a DJ set behind a YouTube link. `extractSet`
-  // resolves with the final ordered tracklist; `onExtractProgress` streams
-  // { phase, percent, ... } updates while it runs.
+  // Each DJ-set extraction is its own job in the main process (the source of
+  // truth). `extractSet` enqueues a new job and resolves with { success, id };
+  // jobs run in parallel and persist across navigation. The renderer keeps its
+  // job list in sync via `onExtractJobsUpdate` (full list) and per-job ticks via
+  // `onExtractJobProgress`.
   extractSet: (url) => ipcRenderer.invoke('extract:start', url),
-  cancelExtraction: () => ipcRenderer.invoke('extract:cancel'),
-  onExtractProgress: (cb) => {
+  cancelExtraction: (id) => ipcRenderer.invoke('extract:cancel', id),
+  deleteExtraction: (id) => ipcRenderer.invoke('extract:delete', id),
+  getExtractionJobs: () => ipcRenderer.invoke('extract:jobs'),
+  onExtractJobsUpdate: (cb) => {
     const handler = (_e, data) => cb(data);
-    ipcRenderer.on('extract:progress', handler);
-    return () => ipcRenderer.removeListener('extract:progress', handler);
+    ipcRenderer.on('extract:jobs-update', handler);
+    return () => ipcRenderer.removeListener('extract:jobs-update', handler);
+  },
+  onExtractJobProgress: (cb) => {
+    const handler = (_e, data) => cb(data);
+    ipcRenderer.on('extract:job-progress', handler);
+    return () => ipcRenderer.removeListener('extract:job-progress', handler);
   },
 
   // ── URL Classification ────────────────────────────────────────────

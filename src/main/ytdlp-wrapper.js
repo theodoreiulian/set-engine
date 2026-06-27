@@ -405,6 +405,144 @@ export default class YtDlpWrapper {
     return this.executeJson(args);
   }
 
+  async getAudioStreamUrl(query, cookiePath = null) {
+    const args = [
+      '-f', 'bestaudio',
+      '-g',
+      '--no-playlist',
+      '--no-warnings',
+    ];
+    if (cookiePath) {
+      args.push('--cookies', cookiePath);
+    }
+    args.push('ytsearch1:' + query);
+
+    return new Promise((resolve, reject) => {
+      const proc = spawn('yt-dlp', args, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      let stdoutBuf = '';
+      let stderrBuf = '';
+
+      proc.stdout.on('data', (chunk) => { stdoutBuf += chunk.toString(); });
+      proc.stderr.on('data', (chunk) => { stderrBuf += chunk.toString(); });
+
+      proc.on('close', (code) => {
+        if (code === 0) {
+          const streamUrl = stdoutBuf.trim().split('\n')[0];
+          if (streamUrl) {
+            resolve(streamUrl);
+          } else {
+            reject(new Error('yt-dlp returned no URL'));
+          }
+        } else {
+          reject(new Error(('yt-dlp stream resolve failed (code ' + code + '): ' + stderrBuf.slice(0, 300)).trim()));
+        }
+      });
+
+      proc.on('error', (err) => reject(new Error('Failed to start yt-dlp: ' + err.message)));
+    });
+  }
+
+  /**
+   * Run `yt-dlp <target> --flat-playlist --dump-json` and return the parsed
+   * NDJSON entries (one JSON object per result line). Best-effort: resolves to
+   * `[]` on any failure (yt-dlp missing, network, parse). Shared by searchMusic
+   * and searchYouTube.
+   * @param {string} target — a search URL or `ytsearchN:` expression
+   * @returns {Promise<object[]>}
+   */
+  _flatSearch(target, extraArgs = []) {
+    const args = [target, '--flat-playlist', '--dump-json', '--no-warnings', ...extraArgs];
+    return new Promise((resolve) => {
+      let stdoutBuf = '';
+      let proc = null;
+      let settled = false;
+      const finish = (val) => { if (settled) return; settled = true; clearTimeout(timer); resolve(val); };
+      // A hung yt-dlp (network stall) would otherwise leave this promise pending
+      // forever and block the track that's awaiting it (and a slot in the cache
+      // download loop). Kill it after a bound and resolve [] — search is best-effort.
+      const timer = setTimeout(() => {
+        try { if (proc) proc.kill('SIGKILL'); } catch (_) { /* gone */ }
+        finish([]);
+      }, 20000);
+      try {
+        proc = spawn('yt-dlp', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      } catch (_) {
+        finish([]);
+        return;
+      }
+      proc.stdout.on('data', (chunk) => { stdoutBuf += chunk.toString(); });
+      proc.stderr.on('data', () => { /* search is best-effort; ignore stderr */ });
+      proc.on('error', () => finish([]));
+      proc.on('close', () => {
+        const out = [];
+        for (const line of stdoutBuf.split('\n')) {
+          const s = line.trim();
+          if (!s) continue;
+          try { out.push(JSON.parse(s)); } catch (_) { /* skip bad line */ }
+        }
+        finish(out);
+      });
+    });
+  }
+
+  /**
+   * Search YouTube *Music* and return the top song results in rank order, as
+   * `{ id, url, title }`. YT Music's catalog is songs (not reactions, sped-up
+   * edits, multi-hour mixes, or wrong-artist uploads that pollute general
+   * youtube.com search), so its top hits are reliably the right track. Results
+   * interleave playable songs (`ie_key: "Youtube"`) with album/artist/playlist
+   * browse pages (`ie_key: "YoutubeTab"`) — we keep only the former. Flat
+   * entries carry no duration/channel, so callers match on title, not metadata.
+   * @param {string} query
+   * @param {number} [limit=5]
+   * @returns {Promise<Array<{ id, url, title }>>}
+   */
+  async searchMusic(query, limit = 5) {
+    const n = Math.max(1, Math.min(20, Number(limit) || 5));
+    // The music.youtube.com search URL carries no result cap, so bound it with
+    // --playlist-end. We pull a few extra entries because YT Music interleaves
+    // non-song `YoutubeTab` browse pages we filter out below. (Songs only.)
+    const entries = await this._flatSearch(
+      `https://music.youtube.com/search?q=${encodeURIComponent(query)}`,
+      ['--playlist-end', String(n * 3)],
+    );
+    const out = [];
+    for (const e of entries) {
+      if (!e || !e.id || e.ie_key !== 'Youtube') continue;   // songs only
+      out.push({ id: e.id, url: `https://www.youtube.com/watch?v=${e.id}`, title: e.title || '' });
+      if (out.length >= n) break;
+    }
+    return out;
+  }
+
+  /**
+   * Search general YouTube (`ytsearchN:`) and return the top results as
+   * `{ id, url, title }`. Used as the fallback when YouTube Music has no
+   * title-matching result.
+   * @param {string} query
+   * @param {number} [limit=5]
+   * @returns {Promise<Array<{ id, url, title }>>}
+   */
+  async searchYouTube(query, limit = 5) {
+    const n = Math.max(1, Math.min(20, Number(limit) || 5));
+    const entries = await this._flatSearch(`ytsearch${n}:${query}`);
+    const out = [];
+    for (const e of entries) {
+      // Keep only playable videos. ytsearch normally returns videos, but guard
+      // against the odd non-video entry (whose id wouldn't form a watch URL),
+      // mirroring searchMusic's filter. ie_key may be absent on some yt-dlp
+      // builds — accept those by id alone.
+      if (!e || !e.id) continue;
+      if (e.ie_key && e.ie_key !== 'Youtube') continue;
+      out.push({ id: e.id, url: `https://www.youtube.com/watch?v=${e.id}`, title: e.title || '' });
+      if (out.length >= n) break;
+    }
+    return out;
+  }
+
   download(url, outputFolder, options = {}) {
     const args = this.buildSongArgs({
       url,

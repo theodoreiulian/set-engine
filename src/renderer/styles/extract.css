@@ -13,6 +13,128 @@
   font-size: 12px;
 }
 
+/* Indeterminate progress: shown while AudD scans server-side with no granular
+   progress (it would otherwise sit at a stuck 0%). Scoped to this page's status
+   bar so it never affects other pages' progress bars. */
+.extract-status .progress-bar {
+  position: relative;
+  overflow: hidden;
+}
+
+.extract-status .progress-fill.indeterminate {
+  position: absolute;
+  left: 0;
+  width: 35%;
+  animation: extract-indeterminate 1.2s ease-in-out infinite;
+}
+
+@keyframes extract-indeterminate {
+  0%   { left: -35%; }
+  100% { left: 100%; }
+}
+
+/* ── Job list (cards) ─────────────────────────────────────────────── */
+.extract-jobs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.extract-job-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.extract-job-card:hover {
+  background: var(--bg-tertiary);
+}
+
+.job-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-muted);
+}
+
+.job-dot.queued    { background: var(--text-muted); }
+.job-dot.running   { background: var(--brand-primary); animation: job-pulse 1.4s ease-in-out infinite; }
+.job-dot.done      { background: var(--brand-primary); }
+.job-dot.error     { background: #f44336; }
+.job-dot.cancelled { background: var(--text-muted); opacity: 0.6; }
+
+@keyframes job-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+.job-card-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.job-card-title {
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-card-sub {
+  font-size: 12px;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-card-delete {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.job-card-delete:hover {
+  color: #f44336;
+  background: var(--bg-primary);
+}
+
+/* ── Job detail ───────────────────────────────────────────────────── */
+.extract-back {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.extract-back:hover {
+  color: var(--text-primary);
+}
+
+.extract-detail-head {
+  margin-top: 8px;
+}
+
+.extract-status-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .extract-results-head {
   display: flex;
   align-items: center;
@@ -49,6 +171,12 @@
   background: var(--bg-tertiary);
 }
 
+.extract-row.playing {
+  background: var(--bg-tertiary);
+  border-left: 3px solid var(--brand-primary);
+  padding-left: 9px;
+}
+
 .extract-row-num {
   width: 28px;
   flex-shrink: 0;
@@ -67,8 +195,41 @@
   color: var(--text-primary);
 }
 
-.extract-row-time {
-  flex-shrink: 0;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
+.extract-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
 }
+
+.extract-play-btn, .extract-dl-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.extract-play-btn:hover, .extract-dl-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-primary);
+}
+
+.extract-play-btn svg, .extract-dl-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+.extract-dl-status {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.text-success { color: var(--brand-primary); }
+.text-danger { color: #f44336; }
+.flex-space-between { display: flex; justify-content: space-between; align-items: center; width: 100%; }

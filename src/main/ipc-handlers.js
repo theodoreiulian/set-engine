@@ -2,13 +2,28 @@ import { ipcMain, dialog, shell } from 'electron';
 import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import os from 'node:os';
 import { classifyUrl } from './sources.js';
 import { buildSet, rescoreTour } from './set-maker.js';
 import { writeRating, readRating, writeBpmKey } from './rating-writer.js';
 import { analyzeTrack } from './audio-analyzer.js';
 import { detectKeyBpm } from './key-bpm-detector.js';
 import { lookupBpm, reconcileBpm } from './bpm-sources.js';
-import { extractSet } from './set-extractor.js';
+import { resolveBestVideoUrl } from './track-match.js';
+
+// Normalize a renderer-supplied destination folder into a usable absolute path,
+// or null to let the caller fall back to the configured download folder. Guards
+// against an un-expanded "~/Music" placeholder (which would otherwise create a
+// literal "~" directory under cwd) and against relative/garbage paths.
+function safeOutputDir(dir) {
+  if (!dir || typeof dir !== 'string') return null;
+  let p = dir.trim();
+  if (!p) return null;
+  if (p === '~' || p.startsWith('~/') || p.startsWith('~\\')) {
+    p = path.join(os.homedir(), p.slice(1));
+  }
+  return path.isAbsolute(p) ? path.normalize(p) : null;
+}
 
 const MATCH_AUDIO_EXTS = new Set([
   '.mp3', '.flac', '.wav', '.wave', '.aiff', '.aif',
@@ -95,7 +110,7 @@ async function walkAudioDir(dirPath, relativeBase, out) {
   }
 }
 
-export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, settingsManager) {
+export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, settingsManager, extractionManager) {
   // Open an external https URL in the user's default browser (e.g. the AudD /
   // ACRCloud dashboard links in Settings). Only http/https — never local files.
   ipcMain.handle('app:open-external', async (event, url) => {
@@ -352,8 +367,6 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
     const items = (payload && Array.isArray(payload.items)) ? payload.items : [];
     if (items.length === 0) return { success: true, results: [] };
 
-    const online = settingsManager.get('bpmLookupOnline') !== false;
-
     const emit = (data) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('tags:progress', data);
@@ -376,7 +389,7 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
         let finalBpm = needBpm ? det.bpm : 0;
         if (needBpm) {
           let externals = [];
-          if (online && item.title) {
+          if (item.title) {
             externals = await lookupBpm({
               title: item.title,
               artist: item.artist,
@@ -512,47 +525,178 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
   });
 
   // ── Set Extraction ──────────────────────────────────────────────────
-  // Identify every track in a DJ set behind a YouTube link. Streams
-  // { phase, percent, ... } via `extract:progress` and resolves with the final
-  // ordered tracklist. Only one extraction runs at a time; a new start (or an
-  // explicit cancel) aborts any in-flight run.
-  let activeExtraction = null; // AbortController | null
+  // Each DJ-set extraction is its own job, owned by ExtractionJobManager (the
+  // source of truth). Jobs run in parallel under a concurrency cap, persist
+  // across renderer navigation, and each owns a private cache dir. The manager
+  // broadcasts `extract:jobs-update` (full list) and `extract:job-progress`
+  // (per-job ticks); these handlers just create / cancel / delete / list jobs.
+  ipcMain.handle('extract:start', (event, url) => extractionManager.addJob(url));
+  ipcMain.handle('extract:cancel', (event, id) => extractionManager.cancelJob(id));
+  ipcMain.handle('extract:delete', (event, id) => extractionManager.deleteJob(id));
+  ipcMain.handle('extract:jobs', () => extractionManager.getJobs());
 
-  ipcMain.handle('extract:start', async (event, url) => {
-    if (typeof url !== 'string' || !url.trim()) {
-      return { success: false, error: 'Paste a YouTube link to a DJ set.' };
-    }
-    const cls = classifyUrl(url);
-    if (!cls || cls.source !== 'youtube-music') {
-      return { success: false, error: 'That doesn\'t look like a YouTube link. Set Extraction works with YouTube / YouTube Music URLs.' };
-    }
-
-    if (activeExtraction) { try { activeExtraction.abort(); } catch (_) { /* ignore */ } }
-    const controller = new AbortController();
-    activeExtraction = controller;
-
-    const emit = (data) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('extract:progress', data);
-      }
-    };
-
+  ipcMain.handle('download:track', async (event, opts) => {
     try {
-      const settings = settingsManager.getAll();
-      return await extractSet(url, { ytDlp, settings, signal: controller.signal, onProgress: emit });
+      const { query, title, artist, trackNumber, filenameTemplate, cachePath, outputDir, jobId, trackIndex } = opts || {};
+
+      const nameSource = filenameTemplate || title || query;
+      if (!nameSource) return { success: false, error: 'query is required' };
+      const safeTitle = String(nameSource).replace(/[<>:"/\\|?*]+/g, '').trim();
+      const safeDir = safeOutputDir(outputDir);
+
+      // Persist a download id/sentinel onto the owning job (if any) so the per-row
+      // ✔/progress state survives navigating off and back onto the job.
+      const record = (id) => {
+        if (extractionManager && jobId && typeof trackIndex === 'number') {
+          extractionManager.recordTrackDownloads(jobId, [{ index: trackIndex, id }]);
+        }
+      };
+
+      if (cachePath) {
+        const { copyFile, stat } = await import('node:fs/promises');
+        const { app } = await import('electron');
+        const NodeID3 = (await import('node-id3')).default;
+        try {
+          await stat(cachePath);
+          const ext = path.extname(cachePath);
+          const destDir = safeDir || settingsManager.getAll().downloadFolder || app.getPath('downloads');
+          await import('node:fs/promises').then(fs => fs.mkdir(destDir, { recursive: true }));
+          const destPath = path.join(destDir, `${safeTitle}${ext}`);
+          await copyFile(cachePath, destPath);
+
+          if (ext.toLowerCase() === '.mp3') {
+            const tags = { title, artist, trackNumber };
+            NodeID3.update(tags, destPath);
+          }
+          if (typeof trackIndex === 'number') record('copied-' + trackIndex);
+          return { success: true, copied: true };
+        } catch (_) {}
+      }
+
+      if (!query) return { success: false, error: 'query is required' };
+      // No usable cache file → resolve to a YouTube URL whose title matches the
+      // detected track. null = no confident match → skip rather than download a
+      // wrong file.
+      const url = await resolveBestVideoUrl(ytDlp, query, title || query, artist);
+      if (!url) {
+        if (typeof trackIndex === 'number') record('skipped-' + trackIndex);
+        return { success: false, skipped: true, error: `No YouTube result matched "${title || query}" — skipped to avoid a wrong download.` };
+      }
+      const id = await downloadManager.addDownload(url, null, {
+        title: title || query,
+        filenameTemplate: safeTitle,
+        outputDir: safeDir || undefined,
+        source: 'youtube-music',
+      });
+      record(id);
+      return { success: true, id };
     } catch (err) {
       return { success: false, error: err.message };
-    } finally {
-      if (activeExtraction === controller) activeExtraction = null;
     }
   });
 
-  ipcMain.handle('extract:cancel', () => {
-    if (activeExtraction) {
-      try { activeExtraction.abort(); } catch (_) { /* ignore */ }
-      activeExtraction = null;
+  ipcMain.handle('download:tracks', async (event, opts) => {
+    try {
+      const { tracks, outputDir, playlistName, jobId } = opts || {};
+      if (!Array.isArray(tracks) || tracks.length === 0) {
+        return { success: false, error: 'No tracks provided' };
+      }
+      const ids = [];
+      const recordEntries = [];   // { index, id|sentinel } persisted onto the job
+      const { copyFile, stat, writeFile } = await import('node:fs/promises');
+      const { app } = await import('electron');
+      const NodeID3 = (await import('node-id3')).default;
+      const destDir = safeOutputDir(outputDir) || settingsManager.getAll().downloadFolder || app.getPath('downloads');
+      await import('node:fs/promises').then(fs => fs.mkdir(destDir, { recursive: true }));
+
+      const m3uLines = ['#EXTM3U'];
+
+      for (let i = 0; i < tracks.length; i++) {
+        const t = tracks[i] || {};
+        const num = String(i + 1);
+        const artist = (t.artist || '').trim();
+        const title = (t.title || '').trim();
+        const query = artist ? artist + ' ' + title : title;
+
+        const safeTitle = (title || query).replace(/[<>:"/\\|?*]+/g, '').trim();
+
+        // Exactly one id is pushed per iteration so `ids` stays index-aligned with
+        // `tracks` for the renderer — even if this track throws. null = skipped.
+        let idToPush = null;
+        let hasFile = false;
+        let finalFilename = `${safeTitle}.mp3`;
+
+        try {
+          let copied = false;
+          if (t.cachePath) {
+            try {
+              await stat(t.cachePath);
+              const ext = path.extname(t.cachePath);
+              finalFilename = `${safeTitle}${ext}`;
+              const destPath = path.join(destDir, finalFilename);
+              await copyFile(t.cachePath, destPath);
+
+              if (ext.toLowerCase() === '.mp3') {
+                const tags = { title, artist, trackNumber: num };
+                NodeID3.update(tags, destPath);
+              }
+              copied = true;
+            } catch (_) { /* cache miss / copy fail → fall through to download */ }
+          }
+
+          if (copied) {
+            idToPush = 'copied-' + i;
+            hasFile = true;
+          } else {
+            // No usable cache file → resolve to a YouTube URL whose title matches
+            // the detected track. null = no confident match → skip this track.
+            const url = await resolveBestVideoUrl(ytDlp, query, title || query, artist);
+            if (url) {
+              idToPush = await downloadManager.addDownload(url, null, {
+                title: title || query,
+                filenameTemplate: safeTitle,
+                outputDir: destDir,
+                source: 'youtube-music',
+              });
+              hasFile = true;
+            }
+          }
+        } catch (err) {
+          // A single track's failure must not abort the batch or orphan the
+          // already-queued downloads; record it as skipped and carry on.
+          console.error('download:tracks failed for track', i, err && err.message);
+          idToPush = null;
+          hasFile = false;
+        }
+
+        ids.push(idToPush);
+        // Persist a mapping for every track: a real id, a 'copied-' sentinel, or
+        // a 'skipped-' sentinel (null idToPush = no match). Matches the sentinels
+        // the renderer uses so navigating off and back keeps each row's ✔/✖.
+        recordEntries.push({ index: i, id: idToPush == null ? 'skipped-' + i : idToPush });
+        // Only list tracks that will actually have a file on disk.
+        if (hasFile) {
+          m3uLines.push(`#EXTINF:-1,${artist ? artist + ' - ' : ''}${title}`);
+          m3uLines.push(finalFilename);
+        }
+      }
+
+      if (extractionManager && jobId) {
+        extractionManager.recordTrackDownloads(jobId, recordEntries);
+      }
+
+      if (playlistName) {
+        const safePlaylistName = playlistName.replace(/[<>:"/\\|?*]+/g, '').trim();
+        if (safePlaylistName) {
+          const m3uPath = path.join(destDir, `${safePlaylistName}.m3u`);
+          await writeFile(m3uPath, m3uLines.join('\n') + '\n', 'utf8');
+        }
+      }
+
+      return { success: true, ids };
+    } catch (err) {
+      return { success: false, error: err.message };
     }
-    return { success: true };
   });
 
 }

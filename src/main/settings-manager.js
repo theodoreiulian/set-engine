@@ -15,11 +15,11 @@ const DEFAULTS = {
   downloadFolder: '',  // Populated at construction time with app.getPath('music')
   audioQuality: 320,   // kbps — one of 128, 192, 320
   filenameTemplate: '%(title)s',
-  autoUpdateYtdlp: true,
   showDisclaimer: true, // Show first-launch disclaimer
-  // Cross-check detected BPM against the free, keyless Deezer database. When off,
-  // BPM tagging is purely local/offline.
-  bpmLookupOnline: true,
+  // Set Extraction is still a beta feature (recognition is imperfect). Show a
+  // one-time accuracy/in-development warning the first time the page is opened;
+  // flipped to true once the user acknowledges it.
+  extractionBetaAck: false,
 
   // ── Set Extraction (DJ-set tracklist identification) ──────────────────
   // Which fingerprinting engine the Set Extraction page uses. Both need an API
@@ -34,6 +34,13 @@ const DEFAULTS = {
   acrHost: '',
   acrAccessKey: '',
   acrAccessSecret: '',
+  // Minimum match confidence (0–100) a recognized track must clear to be kept.
+  // ACRCloud reports a per-match `score` we threshold on directly, so this is
+  // the main defense against false positives (the "old jazz song in a techno
+  // set" problem). AudD doesn't always return a score; when it doesn't, this is
+  // a no-op for AudD and the YouTube candidate validation in set-extractor.js
+  // carries precision instead. Higher = fewer wrong tracks, more genuine misses.
+  recognizerMinConfidence: 60,
 };
 
 export default class SettingsManager {
@@ -54,18 +61,27 @@ export default class SettingsManager {
           enum: [128, 192, 320],
         },
         filenameTemplate: { type: 'string' },
-        autoUpdateYtdlp: { type: 'boolean' },
         showDisclaimer: { type: 'boolean' },
-        bpmLookupOnline: { type: 'boolean' },
+        extractionBetaAck: { type: 'boolean' },
         recognizer: { type: 'string', enum: ['audd', 'acrcloud'] },
         auddApiToken: { type: 'string' },
         acrHost: { type: 'string' },
         acrAccessKey: { type: 'string' },
         acrAccessSecret: { type: 'string' },
+        recognizerMinConfidence: { type: 'number', minimum: 0, maximum: 100 },
       },
     });
 
     this.defaults = defaults;
+  }
+
+  // Credential fields are trimmed on the way in: a trailing space pasted into an
+  // API token/key/secret/host would otherwise silently 401 every recognition with
+  // no obvious cause.
+  _normalize(key, value) {
+    const CREDENTIAL_KEYS = new Set(['auddApiToken', 'acrHost', 'acrAccessKey', 'acrAccessSecret']);
+    if (CREDENTIAL_KEYS.has(key) && typeof value === 'string') return value.trim();
+    return value;
   }
 
   /**
@@ -83,7 +99,7 @@ export default class SettingsManager {
    * @param {*} value
    */
   set(key, value) {
-    this.store.set(key, value);
+    this.store.set(key, this._normalize(key, value));
   }
 
   /**
@@ -100,7 +116,7 @@ export default class SettingsManager {
    */
   setAll(settings) {
     for (const [key, value] of Object.entries(settings)) {
-      this.store.set(key, value);
+      this.store.set(key, this._normalize(key, value));
     }
   }
 

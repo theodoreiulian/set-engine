@@ -77,18 +77,18 @@ export default class DownloadManager {
     if (template) this.filenameTemplate = template;
   }
 
-  async addDownload(url, cookiePath) {
+  async addDownload(url, cookiePath, opts = {}) {
     const id = crypto.randomUUID();
     const classification = classifyUrl(url) || { source: 'youtube-music', kind: isPlaylistUrl(url) ? 'playlist' : 'track' };
-    const source = classification.source;
-    const isPlaylist = classification.kind === 'playlist';
+    const source = opts.source || classification.source;
+    const isPlaylist = opts.source ? false : classification.kind === 'playlist';
     // Only YouTube /watch URLs need the list= strip; Spotify URLs pass through.
     const normalizedUrl = source === 'youtube-music' && !isPlaylist ? normalizeWatchUrl(url) : url;
 
     const item = {
       id,
       url: normalizedUrl,
-      title: 'Fetching info...',
+      title: opts.title || 'Fetching info...',
       type: isPlaylist ? 'playlist' : 'song',
       source,
       status: 'queued',
@@ -96,7 +96,10 @@ export default class DownloadManager {
       speed: '',
       eta: '',
       error: null,
-      children: []
+      children: [],
+      _skipInfo: !!opts.title,
+      _outputDir: opts.outputDir || null,
+      _filenameTemplate: opts.filenameTemplate || null,
     };
 
     this.queue.set(id, item);
@@ -127,16 +130,18 @@ export default class DownloadManager {
     // error handler observe a metadata-fetch rejection.
     return this.limit(async () => {
       const wrapper = this._wrapperFor(item.source);
-      try {
-        // YT and Spotify wrappers both expose getVideoInfo / getTrackInfo with a
-        // { title } shape — call whichever exists.
-        const info = wrapper.getVideoInfo
-          ? await wrapper.getVideoInfo(item.url, cookiePath)
-          : await wrapper.getTrackInfo(item.url, cookiePath);
-        item.title = info.title || item.url;
-        this._broadcast();
-      } catch (_) {
-        // title stays as URL
+      if (!item._skipInfo) {
+        try {
+          // YT and Spotify wrappers both expose getVideoInfo / getTrackInfo with a
+          // { title } shape — call whichever exists.
+          const info = wrapper.getVideoInfo
+            ? await wrapper.getVideoInfo(item.url, cookiePath)
+            : await wrapper.getTrackInfo(item.url, cookiePath);
+          item.title = info.title || item.url;
+          this._broadcast();
+        } catch (_) {
+          // title stays as URL
+        }
       }
 
       await this._runDownload(item, cookiePath, null);
@@ -208,10 +213,10 @@ export default class DownloadManager {
       else this._broadcast();
 
       const wrapper = this._wrapperFor(item.source);
-      const dl = wrapper.download(item.url, this.outputDir, {
+      const dl = wrapper.download(item.url, item._outputDir || this.outputDir, {
         cookiePath,
         bitrate: this.bitrate,
-        filenameTemplate: this.filenameTemplate,
+        filenameTemplate: item._filenameTemplate || this.filenameTemplate,
       });
       item._cancel = dl.cancel;
 
@@ -380,7 +385,7 @@ export default class DownloadManager {
   }
 
   _sanitizeItem(item) {
-    const { _cancel, ...cleanItem } = item;
+    const { _cancel, _skipInfo, _outputDir, _filenameTemplate, ...cleanItem } = item;
     if (cleanItem.children) {
       cleanItem.children = cleanItem.children.map((c) => {
         const { _cancel: childCancel, ...cleanChild } = c;

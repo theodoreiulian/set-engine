@@ -44,28 +44,21 @@ export class SettingsPage {
       </select>`
     ));
 
-    // --- Filename Template ---
+    // --- Filename Format ---
     form.appendChild(this.createFormGroup(
-      'Filename Template',
-      `<input type="text" class="input" id="settings-filename-template" value="%(title)s" spellcheck="false">
-      <div class="form-helper">Available: %(title)s, %(artist)s, %(album)s, %(track_number)s, %(upload_date)s</div>`
-    ));
-
-    // --- BPM Detection ---
-    form.appendChild(this.createFormGroup(
-      'BPM Detection',
-      `<label class="checkbox-wrapper">
-        <input type="checkbox" id="settings-bpm-online" checked>
-        <span>Cross-check detected BPM against online databases</span>
-      </label>
-      <div class="form-helper" style="margin-top: 6px;">The local analyzer always runs. When on, it's cross-checked against the free, keyless Deezer database and any tempo that can't be confirmed is flagged for review. Turn off to tag fully offline.</div>`
+      'Filename Format',
+      `<select class="input" id="settings-filename-template" style="max-width: 320px;">
+        <option value="%(title)s" selected>Title</option>
+        <option value="%(artist)s - %(title)s">Title and artist</option>
+      </select>
+      <div class="form-helper" style="margin-top: 6px;">How downloaded files are named. The artist is always written into the file's metadata tags — so choosing "Title" alone doesn't lose the artist, it just isn't part of the filename.</div>`
     ));
 
     // --- Set Extraction (song recognition) ---
     form.appendChild(this.createFormGroup(
       'Set Extraction — Song Recognition',
       `<select class="input" id="settings-recognizer" style="max-width: 260px;">
-        <option value="audd">AudD (enterprise)</option>
+        <option value="audd" selected>AudD (enterprise)</option>
         <option value="acrcloud">ACRCloud</option>
       </select>
       <div class="form-helper" style="margin-top: 6px;">The engine the Set Extraction page uses to identify tracks in a DJ set. Both need an API key below — recognition can't run offline. No engine is perfect: unreleased IDs, bootlegs, mashups and heavily-effected sections may not resolve.</div>
@@ -78,16 +71,12 @@ export class SettingsPage {
         <input type="text" class="input" id="settings-acr-key" placeholder="Access key" spellcheck="false" autocomplete="off" style="max-width: 360px; margin-bottom: 8px;">
         <input type="password" class="input" id="settings-acr-secret" placeholder="Access secret" spellcheck="false" autocomplete="off" style="max-width: 360px;">
         <div class="form-helper" style="margin-top: 6px;">Create an Audio &amp; Video Recognition project at <a href="#" class="ext-link" data-href="https://console.acrcloud.com/">console.acrcloud.com</a> and copy its host + access key/secret.</div>
+      </div>
+      <div id="settings-confidence-fields" style="margin-top: 16px;">
+        <div class="form-helper" style="margin-bottom: 6px;">Minimum match confidence (0–100)</div>
+        <input type="number" class="input" id="settings-recognizer-confidence" min="0" max="100" step="5" style="max-width: 120px;">
+        <div class="form-helper" style="margin-top: 6px;">Recognized tracks scoring below this are discarded as likely false positives. Higher = fewer wrong tracks, but more genuine ones missed. ACRCloud reports a per-match score to threshold on.</div>
       </div>`
-    ));
-
-    // --- Auto-update yt-dlp ---
-    form.appendChild(this.createFormGroup(
-      '',
-      `<label class="checkbox-wrapper">
-        <input type="checkbox" id="settings-auto-update" checked>
-        <span>Auto-update yt-dlp on startup</span>
-      </label>`
     ));
 
     // --- Tool versions (yt-dlp / spotdl / accelerator) ---
@@ -233,17 +222,12 @@ export class SettingsPage {
 
       if (settings.filenameTemplate) {
         const templateEl = document.getElementById('settings-filename-template');
-        if (templateEl) templateEl.value = settings.filenameTemplate;
-      }
-
-      if (settings.autoUpdateYtdlp !== undefined) {
-        const autoUpdateEl = document.getElementById('settings-auto-update');
-        if (autoUpdateEl) autoUpdateEl.checked = settings.autoUpdateYtdlp;
-      }
-
-      if (settings.bpmLookupOnline !== undefined) {
-        const bpmOnlineEl = document.getElementById('settings-bpm-online');
-        if (bpmOnlineEl) bpmOnlineEl.checked = settings.bpmLookupOnline;
+        if (templateEl) {
+          templateEl.value = settings.filenameTemplate;
+          // A previously-saved custom/free-text template won't match any option;
+          // a <select> then reports value "". Fall back to the default preset.
+          if (templateEl.value === '') templateEl.value = '%(title)s';
+        }
       }
 
       const recognizerEl = document.getElementById('settings-recognizer');
@@ -256,42 +240,47 @@ export class SettingsPage {
       if (acrKeyEl) acrKeyEl.value = settings.acrAccessKey || '';
       const acrSecretEl = document.getElementById('settings-acr-secret');
       if (acrSecretEl) acrSecretEl.value = settings.acrAccessSecret || '';
+      const confidenceEl = document.getElementById('settings-recognizer-confidence');
+      if (confidenceEl) confidenceEl.value = settings.recognizerMinConfidence != null ? settings.recognizerMinConfidence : 60;
       this.syncRecognizerFields();
     } catch (err) {
       showToast('Failed to load settings', 'error');
     }
   }
 
-  // Hide the credential block for whichever engine isn't selected.
+  // Hide the credential block for whichever engine isn't selected. The minimum
+  // match confidence only applies to ACRCloud (AudD's response carries no score),
+  // so it's hidden unless ACRCloud is the selected engine.
   syncRecognizerFields() {
     const engine = document.getElementById('settings-recognizer')?.value || 'audd';
     const auddFields = document.getElementById('settings-audd-fields');
     const acrFields = document.getElementById('settings-acr-fields');
+    const confidenceFields = document.getElementById('settings-confidence-fields');
     if (auddFields) auddFields.classList.toggle('hidden', engine !== 'audd');
     if (acrFields) acrFields.classList.toggle('hidden', engine !== 'acrcloud');
+    if (confidenceFields) confidenceFields.classList.toggle('hidden', engine !== 'acrcloud');
   }
 
   async handleSave() {
     const audioQuality = parseInt(document.getElementById('settings-quality')?.value || '320', 10);
     const filenameTemplate = document.getElementById('settings-filename-template')?.value || '%(title)s';
-    const autoUpdateYtdlp = document.getElementById('settings-auto-update')?.checked ?? true;
-    const bpmLookupOnline = document.getElementById('settings-bpm-online')?.checked ?? true;
     const recognizer = document.getElementById('settings-recognizer')?.value || 'audd';
     const auddApiToken = (document.getElementById('settings-audd-token')?.value || '').trim();
     const acrHost = (document.getElementById('settings-acr-host')?.value || '').trim();
     const acrAccessKey = (document.getElementById('settings-acr-key')?.value || '').trim();
     const acrAccessSecret = (document.getElementById('settings-acr-secret')?.value || '').trim();
+    const confidenceRaw = parseInt(document.getElementById('settings-recognizer-confidence')?.value, 10);
+    const recognizerMinConfidence = Math.min(100, Math.max(0, Number.isFinite(confidenceRaw) ? confidenceRaw : 60));
 
     const settings = {
       audioQuality,
       filenameTemplate,
-      autoUpdateYtdlp,
-      bpmLookupOnline,
       recognizer,
       auddApiToken,
       acrHost,
       acrAccessKey,
       acrAccessSecret,
+      recognizerMinConfidence,
     };
 
     if (!window.setengine || !window.setengine.saveSettings) {

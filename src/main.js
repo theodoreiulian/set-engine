@@ -8,7 +8,9 @@ import YtDlpWrapper from './main/ytdlp-wrapper.js';
 import SpotdlWrapper from './main/spotdl-wrapper.js';
 import DownloadManager from './main/download-manager.js';
 import SettingsManager from './main/settings-manager.js';
+import ExtractionJobManager from './main/extraction-manager.js';
 import { registerIpcHandlers } from './main/ipc-handlers.js';
+import { handleStreamRequest } from './main/stream-resolver.js';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -38,6 +40,10 @@ app.commandLine.appendSwitch('password-store', 'basic');
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'setengine-audio',
+    privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true },
+  },
+  {
+    scheme: 'setengine-stream',
     privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true },
   },
 ]);
@@ -97,7 +103,7 @@ if (process.platform !== 'win32') {
 }
 
 let mainWindow;
-let ytDlp, spotdl, downloadManager, settingsManager;
+let ytDlp, spotdl, downloadManager, settingsManager, extractionManager;
 
 const createWindow = () => {
   mainWindow = new BrowserWindow({
@@ -121,6 +127,13 @@ const createWindow = () => {
   spotdl = new SpotdlWrapper();
   settingsManager = new SettingsManager();
   downloadManager = new DownloadManager(mainWindow, ytDlp, spotdl);
+  extractionManager = new ExtractionJobManager(mainWindow, ytDlp, settingsManager);
+
+  // Extraction jobs live only in memory (not persisted across restart), so every
+  // on-disk cache subdir from a previous session is orphaned. Wipe the whole
+  // ExtractionCache root once at boot — fire-and-forget.
+  fs.promises.rm(ExtractionJobManager.cacheRoot(), { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
+    .catch(() => { /* best-effort */ });
 
   // Lazy load settings and configure download manager. Queue concurrency is
   // hardcoded in DownloadManager (sized to YouTube's per-IP tolerance), so it
@@ -130,7 +143,7 @@ const createWindow = () => {
   downloadManager.setBitrate(settings.audioQuality);
   downloadManager.setFilenameTemplate(settings.filenameTemplate);
 
-  registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, settingsManager);
+  registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, settingsManager, extractionManager);
 
   // Detect aria2c first (cheap `which` call) so the very first download already
   // knows whether to route through the accelerator. Fire-and-forget — if a
@@ -172,16 +185,16 @@ const createWindow = () => {
     }
   }).catch(() => { /* ignore */ });
 
-  // Auto update check
-  if (settings.autoUpdateYtdlp) {
-    ytDlp.update().catch(err => {
-      if (err.managedInstall) {
-        console.log('yt-dlp is managed by an external package manager; skipping auto-update.');
-      } else {
-        console.error('Failed to update yt-dlp:', err);
-      }
-    });
-  }
+  // Auto-update yt-dlp at boot. Always on — YouTube's SABR changes break older
+  // builds, so a stale yt-dlp means every download fails. Managed installs
+  // (Homebrew/pipx) are skipped automatically below.
+  ytDlp.update().catch(err => {
+    if (err.managedInstall) {
+      console.log('yt-dlp is managed by an external package manager; skipping auto-update.');
+    } else {
+      console.error('Failed to update yt-dlp:', err);
+    }
+  });
 };
 
 app.whenReady().then(async () => {
@@ -273,6 +286,10 @@ app.whenReady().then(async () => {
 
   createWindow();
 
+  // setengine-stream:// — proxy YouTube audio for in-app playback.
+  // Registered after createWindow() so ytDlp is initialized.
+  protocol.handle('setengine-stream', (req) => handleStreamRequest(req, ytDlp));
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
@@ -281,6 +298,10 @@ app.whenReady().then(async () => {
 });
 
 app.on('before-quit', () => {
+  // Abort in-flight extraction jobs so no recognizer/API work continues after
+  // the window is gone (their yt-dlp/ffmpeg children are reaped by killAll below).
+  try { if (extractionManager) extractionManager.abortAll(); } catch (_) { /* ignore */ }
+
   // Kill any in-flight downloader children first, otherwise the hard exit below
   // orphans running yt-dlp / spotdl (and their ffmpeg / aria2c) processes, which
   // would keep downloading after the app is gone.

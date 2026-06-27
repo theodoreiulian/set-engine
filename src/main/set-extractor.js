@@ -16,9 +16,10 @@
 import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
-import { mkdtemp, rm, readdir } from 'node:fs/promises';
+import { mkdtemp, rm, readdir, stat, mkdir, unlink } from 'node:fs/promises';
 import { getRecognizer } from './recognizers/index.js';
 import { cleanTitle, primaryArtist } from './bpm-sources.js';
+import { resolveBestVideoUrl } from './track-match.js';
 
 // Normalized identity used for adjacent-duplicate detection. Reuses the same
 // title/artist cleaners the BPM lookup uses, so hits that differ only by
@@ -30,18 +31,20 @@ function identityKey(artist, title) {
   return `${a} ${t}`.replace(/\s+/g, ' ').trim();
 }
 
-// Collapse runs of the same track (a DJ holds a track across many scan windows)
-// into a single entry, keeping the earliest offset. Adjacent-only: a track that
-// genuinely returns later in the set stays as a separate entry.
-function mergeAdjacent(tracks) {
+// Collapse all hits for the same track into a single entry, keeping the earliest
+// offset. A DJ holds a track across many scan windows, and recognizers also
+// re-report a track when it recurs later in the set or when an unrecognized
+// window splits a run — every such duplicate is dropped, so each unique song
+// appears exactly once (in first-played order).
+function dedupeTracks(tracks) {
   const sorted = tracks.slice().sort((a, b) => (a.offsetSec || 0) - (b.offsetSec || 0));
   const out = [];
-  let lastKey = null;
+  const seen = new Set();
   for (const t of sorted) {
     if (!t || !t.title) continue;
     const key = identityKey(t.artist, t.title);
-    if (key && key === lastKey) continue;
-    lastKey = key;
+    if (key && seen.has(key)) continue;
+    if (key) seen.add(key);
     out.push({
       artist: (t.artist || '').trim(),
       title: (t.title || '').trim(),
@@ -65,11 +68,13 @@ async function findDownloaded(tmpDir, id) {
   return path.join(tmpDir, `${id}.mp3`);
 }
 
-export async function extractSet(url, { ytDlp, settings, signal, onProgress } = {}) {
+export async function extractSet(url, { ytDlp, settings, signal, onProgress, cacheDir } = {}) {
   const emit = (data) => { try { if (onProgress) onProgress(data); } catch (_) { /* ignore */ } };
 
   // Validate engine + credentials before any heavy work so the error is instant.
   const recognizer = getRecognizer(settings);
+
+  if (!cacheDir) throw new Error('extractSet requires a cacheDir.');
 
   emit({ phase: 'info', percent: 0 });
   let info = null;
@@ -78,6 +83,12 @@ export async function extractSet(url, { ytDlp, settings, signal, onProgress } = 
   } catch (err) {
     throw new Error(`Couldn't read that link: ${err.message}`);
   }
+
+  // The cache dir is owned by this job (one private dir per extraction). It is
+  // created fresh in the caching phase below and torn down when the job is
+  // deleted — this orchestrator never wipes it, so parallel jobs can't clobber
+  // each other's cached audio. Cache files are keyed by the track's normalized
+  // identity.
   const durationSec = Number(info && info.duration) || 0;
   const meta = { title: (info && info.title) || '', durationSec };
   emit({ phase: 'info', percent: 5, info: meta });
@@ -115,13 +126,92 @@ export async function extractSet(url, { ytDlp, settings, signal, onProgress } = 
 
     if (signal && signal.aborted) throw new Error('Extraction cancelled.');
 
-    // ── Merge ───────────────────────────────────────────────────────────
+    // ── Merging ───────────────────────────────────────────────────────────
+    const merged = dedupeTracks(tracks || []);
     emit({ phase: 'merging', percent: 100 });
-    const merged = mergeAdjacent(tracks || []);
+
+    // ── Caching ───────────────────────────────────────────────────────────
+    emit({ phase: 'caching', percent: 0 });
+    await mkdir(cacheDir, { recursive: true });   // this job's private cache dir
+
+    let cachedTracksCount = 0;
+    const concurrencyLimit = 5;
+    const activeDownloads = new Set();
+    // Per-track download quality follows the user's audio-quality setting (same
+    // key the normal queue uses); these files are copied verbatim to the user's
+    // folder by download:track / download:tracks.
+    const downloadBitrate = settings.audioQuality || 320;
+
+    const runCacheDownload = async (t) => {
+      if (signal && signal.aborted) return;
+      const query = t.artist ? `${t.artist} ${t.title}` : t.title;
+      // Key the cache file by the track's *normalized* identity — the same key
+      // dedupe uses — so two surviving tracks can never collide onto one file and
+      // serve each other's audio (a raw query could).
+      const fileId = crypto.createHash('md5').update(identityKey(t.artist, t.title) || query).digest('hex');
+      const expectedFile = path.join(cacheDir, `${fileId}.mp3`);
+
+      // Whole body is guarded: a single track can only ever fail to produce a
+      // cachePath, never reject the batch. resolveBestVideoUrl is documented as
+      // best-effort, but a stray throw here must not abort the whole extraction.
+      try {
+        try {
+          await stat(expectedFile);
+          t.cachePath = expectedFile;
+        } catch (_) {
+          // Cache miss → resolve to a YouTube URL whose title matches the detected
+          // track. null = no confident match anywhere; leave this track without a
+          // cached file rather than download something wrong.
+          const target = await resolveBestVideoUrl(ytDlp, query, t.title, t.artist);
+          if (target) {
+            try {
+              await new Promise((resolve, reject) => {
+                const dl = ytDlp.download(target, cacheDir, { bitrate: downloadBitrate, filenameTemplate: fileId });
+                const onAbort = () => { try { dl.cancel(); } catch (_) {} reject(new Error('Extraction cancelled.')); };
+                if (signal) {
+                  if (signal.aborted) { onAbort(); return; }
+                  signal.addEventListener('abort', onAbort, { once: true });
+                }
+                dl.on('complete', () => { if (signal) signal.removeEventListener('abort', onAbort); resolve(); });
+                dl.on('error', (err) => { if (signal) signal.removeEventListener('abort', onAbort); reject(err); });
+              });
+              const actualPath = await findDownloaded(cacheDir, fileId);
+              t.cachePath = actualPath;
+            } catch (err) {
+              // Remove any partial/`.part` file this failed download left behind.
+              try { await unlink(expectedFile); } catch (_) { /* may not exist */ }
+              console.error('Failed to cache track:', query, err.message);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Cache step failed for track:', query, err && err.message);
+      } finally {
+        cachedTracksCount++;
+        emit({ phase: 'caching', percent: Math.round((cachedTracksCount / merged.length) * 100) });
+      }
+    };
+
+    const promises = [];
+    for (const t of merged) {
+      if (signal && signal.aborted) break;
+      while (activeDownloads.size >= concurrencyLimit) {
+        await Promise.race(activeDownloads);
+      }
+      const p = runCacheDownload(t).finally(() => activeDownloads.delete(p));
+      activeDownloads.add(p);
+      promises.push(p);
+    }
+    await Promise.all(promises);
+    if (signal && signal.aborted) throw new Error('Extraction cancelled.');
 
     emit({ phase: 'done', percent: 100, tracks: merged, engine: recognizer.name, info: meta });
     return { success: true, tracks: merged, engine: recognizer.name, info: meta };
   } finally {
-    try { await rm(tmpDir, { recursive: true, force: true }); } catch (_) { /* best-effort */ }
+    // Only the scratch download/scan dir is cleaned here. The job's cacheDir is
+    // owned by ExtractionJobManager and removed when the job is deleted (and the
+    // whole ExtractionCache root is wiped at app boot), so a cancelled/failed run
+    // leaves its partial cache in place until the user deletes the job.
+    try { await rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); } catch (_) { /* best-effort */ }
   }
 }

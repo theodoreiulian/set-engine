@@ -24,12 +24,6 @@ const NAV_ITEMS = [
     icon: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>',
   },
   {
-    id: 'nav-queue',
-    page: 'queue',
-    label: 'Download Queue',
-    icon: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>',
-  },
-  {
     id: 'nav-match',
     page: 'match',
     label: 'Match Maker',
@@ -45,7 +39,14 @@ const NAV_ITEMS = [
     id: 'nav-extract',
     page: 'extract',
     label: 'Set Extraction',
+    beta: true,
     icon: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/><path d="M19.5 7.5l-6 3M4.5 16.5l6-3"/></svg>',
+  },
+  {
+    id: 'nav-queue',
+    page: 'queue',
+    label: 'Download Queue',
+    icon: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>',
   },
   {
     id: 'nav-settings',
@@ -84,10 +85,15 @@ export class App {
       btn.innerHTML = `
         <span class="sidebar-icon" style="display:flex; align-items:center;">${item.icon}</span>
         <span class="sidebar-label">${item.label}</span>
+        ${item.beta ? '<span class="sidebar-badge">BETA</span>' : ''}
       `;
 
-      if (item.id === 'nav-settings') {
+      // Push the Download Queue + Settings pair to the bottom of the sidebar:
+      // marginTop:auto on the first of the pair eats the remaining flex space.
+      if (item.id === 'nav-queue') {
         btn.style.marginTop = 'auto';
+      }
+      if (item.id === 'nav-settings') {
         btn.style.marginBottom = '24px';
       }
 
@@ -123,6 +129,36 @@ export class App {
     this.sidebar.querySelectorAll('.sidebar-btn').forEach((btn) => {
       btn.classList.toggle('active', btn.dataset.page === pageName);
     });
+
+    // Set Extraction is a beta feature — warn the user once that recognition is
+    // imperfect. Fire-and-forget (the page renders behind the modal); persisted
+    // via the extractionBetaAck setting so it only appears the first time.
+    if (pageName === 'extract') this.checkExtractionBeta();
+  }
+
+  async checkExtractionBeta() {
+    if (this._extractionBetaAck || !window.setengine || !window.setengine.getSettings) return;
+
+    try {
+      const settings = await window.setengine.getSettings();
+      if (settings && settings.extractionBetaAck === true) {
+        this._extractionBetaAck = true;
+        return;
+      }
+
+      await showModal(
+        'Set Extraction (Beta)',
+        `<p>Set Extraction is a <strong>beta feature</strong> and still in active development.</p>
+        <p>Tracklists are identified by audio fingerprinting, which is <strong>not always accurate</strong>: unreleased IDs, bootlegs, mashups, and heavily-edited tracks often can't be matched, and some results may be wrong or missing entirely.</p>
+        <p>Treat the output as a starting point, not a definitive tracklist.</p>`,
+        ['GOT IT']
+      );
+
+      this._extractionBetaAck = true;
+      if (window.setengine.saveSettings) {
+        await window.setengine.saveSettings({ extractionBetaAck: true });
+      }
+    } catch (_) { /* ignore */ }
   }
 
 
