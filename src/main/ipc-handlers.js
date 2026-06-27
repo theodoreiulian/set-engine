@@ -597,19 +597,17 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
 
   ipcMain.handle('download:tracks', async (event, opts) => {
     try {
-      const { tracks, outputDir, playlistName, jobId } = opts || {};
+      const { tracks, outputDir, jobId } = opts || {};
       if (!Array.isArray(tracks) || tracks.length === 0) {
         return { success: false, error: 'No tracks provided' };
       }
       const ids = [];
       const recordEntries = [];   // { index, id|sentinel } persisted onto the job
-      const { copyFile, stat, writeFile } = await import('node:fs/promises');
+      const { copyFile, stat } = await import('node:fs/promises');
       const { app } = await import('electron');
       const NodeID3 = (await import('node-id3')).default;
       const destDir = safeOutputDir(outputDir) || settingsManager.getAll().downloadFolder || app.getPath('downloads');
       await import('node:fs/promises').then(fs => fs.mkdir(destDir, { recursive: true }));
-
-      const m3uLines = ['#EXTM3U'];
 
       for (let i = 0; i < tracks.length; i++) {
         const t = tracks[i] || {};
@@ -623,7 +621,6 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
         // Exactly one id is pushed per iteration so `ids` stays index-aligned with
         // `tracks` for the renderer — even if this track throws. null = skipped.
         let idToPush = null;
-        let hasFile = false;
         let finalFilename = `${safeTitle}.mp3`;
 
         try {
@@ -646,7 +643,6 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
 
           if (copied) {
             idToPush = 'copied-' + i;
-            hasFile = true;
           } else {
             // No usable cache file → resolve to a YouTube URL whose title matches
             // the detected track. null = no confident match → skip this track.
@@ -658,7 +654,6 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
                 outputDir: destDir,
                 source: 'youtube-music',
               });
-              hasFile = true;
             }
           }
         } catch (err) {
@@ -666,7 +661,6 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
           // already-queued downloads; record it as skipped and carry on.
           console.error('download:tracks failed for track', i, err && err.message);
           idToPush = null;
-          hasFile = false;
         }
 
         ids.push(idToPush);
@@ -674,23 +668,10 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
         // a 'skipped-' sentinel (null idToPush = no match). Matches the sentinels
         // the renderer uses so navigating off and back keeps each row's ✔/✖.
         recordEntries.push({ index: i, id: idToPush == null ? 'skipped-' + i : idToPush });
-        // Only list tracks that will actually have a file on disk.
-        if (hasFile) {
-          m3uLines.push(`#EXTINF:-1,${artist ? artist + ' - ' : ''}${title}`);
-          m3uLines.push(finalFilename);
-        }
       }
 
       if (extractionManager && jobId) {
         extractionManager.recordTrackDownloads(jobId, recordEntries);
-      }
-
-      if (playlistName) {
-        const safePlaylistName = playlistName.replace(/[<>:"/\\|?*]+/g, '').trim();
-        if (safePlaylistName) {
-          const m3uPath = path.join(destDir, `${safePlaylistName}.m3u`);
-          await writeFile(m3uPath, m3uLines.join('\n') + '\n', 'utf8');
-        }
       }
 
       return { success: true, ids };

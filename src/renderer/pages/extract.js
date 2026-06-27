@@ -1,7 +1,7 @@
 import { showToast } from '../components/toast.js';
 
-// Set Extraction — paste a YouTube DJ-set link and get the tracklist in play
-// order. Each extraction is its own *job* owned by the main process (the source
+// Set Extraction — paste a YouTube DJ-set link and get the tracklist of tracks
+// identified in it. Each extraction is its own *job* owned by the main process (the source
 // of truth): jobs run in parallel, keep running while you navigate away, and
 // each owns a private cache. This page is a pure view — a list of job cards plus
 // a per-job detail (tracklist) you can click on and off without disturbing the
@@ -571,14 +571,13 @@ export class ExtractPage {
       const res = await window.setengine.downloadTracks({
         tracks: job.tracks,
         outputDir: this.folderPath,
-        playlistName: (job.info && job.info.title) || job.title || 'Tracklist',
         jobId: this.selectedJobId,
       });
       if (res && res.success) {
         const skipped = (res.ids || []).filter((id) => id == null).length;
         const ok = job.tracks.length - skipped;
         showToast(
-          skipped ? `Processed ${ok} tracks · ${skipped} skipped (no match)` : `Processed ${ok} tracks and saved playlist`,
+          skipped ? `Downloaded ${ok} tracks · ${skipped} skipped (no match)` : `Downloaded ${ok} tracks`,
           skipped ? 'warning' : 'success',
         );
       } else {
