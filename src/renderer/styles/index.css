@@ -683,6 +683,13 @@ select.input option {
   margin-top: 4px;
 }
 
+/* External links in helper subtext: match the muted subtext color rather than
+   the default browser blue, but keep an underline so they still read as links. */
+.ext-link {
+  color: var(--text-muted);
+  text-decoration: underline;
+}
+
 .form-row {
   display: flex;
   align-items: center;

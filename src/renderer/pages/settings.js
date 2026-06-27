@@ -61,10 +61,10 @@ export class SettingsPage {
         <option value="audd" selected>AudD (enterprise)</option>
         <option value="acrcloud">ACRCloud</option>
       </select>
-      <div class="form-helper" style="margin-top: 6px;">The engine the Set Extraction page uses to identify tracks in a DJ set. Both need an API key below — recognition can't run offline. No engine is perfect: unreleased IDs, bootlegs, mashups and heavily-effected sections may not resolve.</div>
+      <div class="form-helper" style="margin-top: 6px;">The engine the Set Extraction page uses to identify tracks in a DJ set. Both need an API key below.</div>
       <div id="settings-audd-fields" style="margin-top: 12px;">
         <input type="password" class="input" id="settings-audd-token" placeholder="AudD API token" spellcheck="false" autocomplete="off" style="max-width: 360px;">
-        <div class="form-helper" style="margin-top: 6px;">Get a token at <a href="#" class="ext-link" data-href="https://dashboard.audd.io/">dashboard.audd.io</a>. Billed 1 request per 12 s of audio (first 300 free) — a 1 h set is ≈300 requests.</div>
+        <div class="form-helper" style="margin-top: 6px;">Get a token at <a href="#" class="ext-link" data-href="https://dashboard.audd.io/">dashboard.audd.io</a>.</div>
       </div>
       <div id="settings-acr-fields" style="margin-top: 12px;">
         <input type="text" class="input" id="settings-acr-host" placeholder="ACRCloud host (e.g. identify-eu-west-1.acrcloud.com)" spellcheck="false" autocomplete="off" style="max-width: 360px; margin-bottom: 8px;">

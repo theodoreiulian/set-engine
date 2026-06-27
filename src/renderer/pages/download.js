@@ -65,17 +65,6 @@ export class DownloadPage {
     `;
     body.appendChild(folderGroup);
 
-    // --- Jump to queue ---
-    const queueRow = document.createElement('div');
-    queueRow.className = 'mt-16';
-    const queueBtn = document.createElement('button');
-    queueBtn.className = 'btn-secondary btn-sm';
-    queueBtn.id = 'download-view-queue-btn';
-    queueBtn.textContent = 'VIEW DOWNLOAD QUEUE';
-    queueBtn.addEventListener('click', () => this.app.navigateTo('queue'));
-    queueRow.appendChild(queueBtn);
-    body.appendChild(queueRow);
-
     // Refs + listeners
     this.urlInput = container.querySelector('#download-url-input');
     this.folderPathEl = container.querySelector('#download-folder-path');
