@@ -25,15 +25,15 @@ npm run make      # produce platform installers
 
 ## Code conventions
 
-- Vanilla JS — no framework in the renderer.
-- ES modules throughout (`"type": "module"` is implicit via `.js` extensions).
-- `contextIsolation` is on. All main ↔ renderer communication goes through `src/preload.js` → `src/main/ipc-handlers.js`.
+- Vanilla JS, no framework in the renderer.
+- ES modules throughout. Vite compiles the build; `package.json` deliberately has no `"type": "module"`.
+- `contextIsolation` is on. All main and renderer communication goes through `src/preload.js` and `src/main/ipc-handlers.js`.
 - No external dependencies for the renderer (no jQuery, no React). Keep it that way.
 - CSS is in `src/renderer/styles/`. Dark mode only.
 
 ## Before submitting
 
-- Run `npm start` and exercise the feature you changed. There's no test suite — manual verification is the QA process.
+- Run `npm start` and exercise the feature you changed. There's no test suite, so manual verification is the QA process.
 - Check for leftover `console.log` debug lines.
 - Make sure your changes work on at least one platform (macOS, Windows, or Linux).
 
@@ -41,4 +41,4 @@ npm run make      # produce platform installers
 
 - One feature or fix per PR.
 - Reference the issue number if applicable.
-- Keep PRs focused — refactors unrelated to the described change belong in separate PRs.
+- Keep PRs focused. Refactors unrelated to the described change belong in separate PRs.
