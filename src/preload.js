@@ -96,6 +96,14 @@ contextBridge.exposeInMainWorld('setengine', {
   // (track | playlist) so the Download page can validate before queueing.
   classifyURL: (url) => ipcRenderer.invoke('url:classify', url),
 
+  // ── Crate Sorter ──────────────────────────────────────────────────
+  // All request/response (no realtime events). Source-loading + crate-creation
+  // handlers open native dialogs in main; copy-into-folders is the commit
+  // primitive that copies a source file into the selected crates.
+  sorterAddSourceFolder: () => ipcRenderer.invoke('sorter:add-source-folder'),
+  sorterAddDestFolders: () => ipcRenderer.invoke('sorter:add-dest-folders'),
+  sorterCopyIntoFolders: (opts) => ipcRenderer.invoke('sorter:copy-into-folders', opts),
+
   // ── System ────────────────────────────────────────────────────────
   openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
   checkDeps: () => ipcRenderer.invoke('deps:check'),

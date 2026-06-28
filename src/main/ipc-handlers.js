@@ -10,6 +10,7 @@ import { analyzeTrack } from './audio-analyzer.js';
 import { detectKeyBpm } from './key-bpm-detector.js';
 import { lookupBpm, reconcileBpm } from './bpm-sources.js';
 import { resolveBestVideoUrl } from './track-match.js';
+import { addSessionRoot } from './session-roots.js';
 
 // Normalize a renderer-supplied destination folder into a usable absolute path,
 // or null to let the caller fall back to the configured download folder. Guards
@@ -678,6 +679,102 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
     } catch (err) {
       return { success: false, error: err.message };
     }
+  });
+
+  // ── Crate Sorter ────────────────────────────────────────────────────
+  // Triage loose audio into destination "crates" by COPYING (never moving /
+  // deleting the source). Each dialog-backed handler registers the chosen path
+  // as a session preview root so files outside Music/Downloads/Home (e.g. an
+  // external-drive library) can still be previewed via setengine-audio://.
+
+  ipcMain.handle('sorter:add-source-folder', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory', 'multiSelections'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return { success: false, cancelled: true };
+    const folders = [];
+    for (const folder of result.filePaths) {
+      try {
+        const s = await stat(folder);
+        if (!s.isDirectory()) continue;
+      } catch { continue; }
+      addSessionRoot(folder);
+      const out = [];
+      await walkAudioDir(folder, path.basename(folder), out);
+      folders.push({ folder, files: out });
+    }
+    return folders.length > 0 ? { success: true, folders } : { success: false, error: 'No valid folders selected.' };
+  });
+
+  ipcMain.handle('sorter:add-dest-folders', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory', 'multiSelections'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return { success: false, cancelled: true };
+    const folders = [];
+    for (const p of result.filePaths) {
+      try {
+        const s = await stat(p);
+        if (!s.isDirectory()) continue;
+        addSessionRoot(p);
+        folders.push({ path: p, name: path.basename(p) });
+      } catch { /* skip inaccessible */ }
+    }
+    return folders.length > 0 ? { success: true, folders } : { success: false, error: 'No valid folders selected.' };
+  });
+
+  // Copy one source file into N destination crates. Non-destructive: if a
+  // same-named file with an identical size already exists it is left untouched
+  // (status 'exists'); a same-named file of different size gets a " (n)" suffix
+  // so a distinct track is never clobbered. Per-folder errors are isolated.
+  ipcMain.handle('sorter:copy-into-folders', async (event, opts) => {
+    const sourcePath = opts && opts.sourcePath;
+    const destFolders = (opts && Array.isArray(opts.destFolders)) ? opts.destFolders : [];
+    if (typeof sourcePath !== 'string' || !sourcePath) {
+      return { success: false, error: 'sourcePath required' };
+    }
+
+    let srcSize;
+    try {
+      const s = await stat(sourcePath);
+      if (!s.isFile()) return { success: false, missing: true, error: 'Source is not a file.' };
+      srcSize = s.size;
+    } catch {
+      return { success: false, missing: true, error: 'Source file no longer exists.' };
+    }
+
+    const { copyFile, mkdir } = await import('node:fs/promises');
+    const base = path.basename(sourcePath);
+    const ext = path.extname(base);
+    const stem = base.slice(0, base.length - ext.length);
+
+    const results = [];
+    for (const folder of destFolders) {
+      const dir = safeOutputDir(folder);
+      if (!dir) { results.push({ folder, status: 'error', error: 'Invalid destination path.' }); continue; }
+      try {
+        await mkdir(dir, { recursive: true });
+        let destPath = path.join(dir, base);
+        let existing = null;
+        try { const ds = await stat(destPath); if (ds.isFile()) existing = ds; } catch { /* absent */ }
+        if (existing) {
+          if (existing.size === srcSize) { results.push({ folder, status: 'exists', destPath }); continue; }
+          let n = 2;
+          while (true) {
+            const candidate = path.join(dir, `${stem} (${n})${ext}`);
+            let taken = false;
+            try { await stat(candidate); taken = true; } catch { taken = false; }
+            if (!taken) { destPath = candidate; break; }
+            n++;
+          }
+        }
+        await copyFile(sourcePath, destPath);
+        results.push({ folder, status: 'copied', destPath });
+      } catch (err) {
+        results.push({ folder, status: 'error', error: err.message });
+      }
+    }
+    return { success: true, results };
   });
 
 }

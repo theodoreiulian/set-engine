@@ -1,0 +1,513 @@
+/* ============================================
+   Crate Sorter
+   ============================================ */
+
+.main-content.sorter-host {
+  padding: 0;
+  overflow: hidden;
+  display: block;
+}
+
+.sorter-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background: var(--bg-primary);
+}
+
+/* --- Topbar (setup view) --- */
+.sorter-topbar {
+  display: flex;
+  align-items: center;
+  padding: calc(var(--titlebar-inset) + 16px) 24px 12px 24px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.sorter-topbar .page-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+
+/* --- Setup view --- */
+.sorter-setup {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.sorter-setup-inner {
+  padding: 24px 32px 40px 32px;
+  max-width: 820px;
+}
+
+.sorter-lead {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+  margin-bottom: 28px;
+}
+
+.sorter-btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.sorter-count {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.sorter-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 6px 0;
+}
+
+/* Source rows */
+.sorter-source-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sorter-source-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+}
+
+.sorter-source-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.sorter-source-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Destination crate chips */
+.sorter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sorter-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 6px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+}
+
+.sorter-chip-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.sorter-chip-name {
+  font-size: 12px;
+  color: var(--text-primary);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sorter-x {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 4px;
+  flex-shrink: 0;
+}
+
+.sorter-x:hover {
+  color: var(--error);
+}
+
+.sorter-start-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.sorter-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* --- Sort view layout --- */
+.sorter-sort-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+}
+
+/* Sidebar */
+.sorter-sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+}
+
+.sorter-sidebar-head {
+  padding: calc(var(--titlebar-inset) + 14px) 16px 12px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.sorter-progress {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.sorter-progress-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.sorter-sidebar-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 6px;
+}
+
+.sorter-sidebar-foot {
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+/* Song rows */
+.sorter-song {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 7px 8px;
+  font-family: var(--font);
+}
+
+.sorter-song:hover {
+  background: var(--bg-hover);
+}
+
+.sorter-song.is-current {
+  background: var(--bg-tertiary);
+  border-color: var(--border);
+}
+
+.sorter-song-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  background: var(--text-muted);
+}
+
+.sorter-song.is-sorted .sorter-song-dot { background: var(--success); }
+.sorter-song.is-skipped .sorter-song-dot { background: var(--warning); }
+.sorter-song.is-missing .sorter-song-dot { background: var(--error); }
+.sorter-song.is-current .sorter-song-dot { background: var(--accent); }
+
+.sorter-song-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.sorter-song-name {
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sorter-song.is-current .sorter-song-name { color: var(--accent); }
+.sorter-song.is-missing .sorter-song-name { color: var(--error); }
+
+.sorter-song-sub {
+  font-size: 10px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Main (player + crate toggles) */
+.sorter-main {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: calc(var(--titlebar-inset) + 28px) 40px 40px 40px;
+}
+
+.sorter-now-index {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+}
+
+.sorter-now-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-top: 6px;
+  word-break: break-word;
+}
+
+.sorter-now-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.sorter-now-missing {
+  font-size: 12px;
+  color: var(--error);
+  margin-top: 8px;
+}
+
+/* Player */
+.sorter-player {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 22px 0 30px 0;
+  max-width: 640px;
+}
+
+.sorter-play-btn {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 15px;
+}
+
+.sorter-play-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+.sorter-seek {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+
+.sorter-seek-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+}
+
+.sorter-seek-time {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  min-width: 86px;
+  text-align: right;
+}
+
+/* Crate toggles */
+.sorter-folders-head {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sorter-folders-hint {
+  font-weight: 400;
+  text-transform: none;
+  color: var(--text-muted);
+}
+
+.sorter-folders {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+  margin-bottom: 28px;
+}
+
+.sorter-folder {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 12px;
+  font-family: var(--font);
+}
+
+.sorter-folder:hover {
+  background: var(--bg-hover);
+}
+
+.sorter-folder.is-selected {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.sorter-folder.is-copied {
+  border-color: var(--success);
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.sorter-folder-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.sorter-folder.is-selected .sorter-folder-key {
+  background: var(--accent);
+  color: var(--bg-primary);
+}
+
+.sorter-folder.is-copied .sorter-folder-key {
+  background: var(--success);
+  color: var(--bg-primary);
+}
+
+.sorter-folder-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.sorter-folder-badge {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  padding: 2px 5px;
+  flex-shrink: 0;
+}
+
+.sorter-folder-badge.sel {
+  background: var(--accent);
+  color: var(--bg-primary);
+}
+
+.sorter-folder-badge.copied {
+  background: var(--success);
+  color: var(--bg-primary);
+}
+
+/* Actions + key hints */
+.sorter-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.sorter-keyhint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Completion */
+.sorter-complete {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  padding-top: 20px;
+}
+
+.sorter-complete-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+
+.sorter-complete-stats {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.sorter-complete-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}

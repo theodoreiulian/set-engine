@@ -6,12 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 ## What this is
 
-SetEngine is an Electron desktop app (macOS / Windows / Linux) built **for DJs**. It does four things:
+SetEngine is an Electron desktop app (macOS / Windows / Linux) built **for DJs**. It does five things:
 
 1. **Download** — paste a YouTube / YouTube Music or Spotify link (song, playlist, or album) and it downloads MP3s. There is **no embedded browser**; the link's source and shape are auto-detected from the URL.
 2. **Set Extraction** — paste a YouTube DJ-set link and it fingerprint-identifies the tracks played and lets you download each (or the whole set).
 3. **Set Maker** — analyze a folder of local audio (offline BPM + key detection), rate tracks, and build a harmonically-ordered setlist; import/export `.m3u`.
 4. **Match Maker (TuneMatch)** — import a local library and get harmonic-mixing match suggestions for any selected track; detect + write missing BPM/key tags.
+5. **Crate Sorter** — load one or more folders of local audio, pick destination folders ("crates"), then work through every track in alphabetical (filename) order with a seekable player and keyboard shortcuts, copying each into the crates you choose. Non-destructive (originals are never moved/deleted); no recognition or network needed.
 
 It wraps the system-installed `yt-dlp` (YouTube) and `spotdl` (Spotify) binaries; `ffmpeg` does the audio conversion. Downloads run **unauthenticated** — there is no sign-in surface, so only public content is reachable. (Auth-gated YouTube content such as private playlists or age-restricted videos will fail; Spotify never needed a session because `spotdl` resolves public metadata + a YouTube audio match.)
 
@@ -117,6 +118,7 @@ Three-tier Electron split with strict process boundaries via `contextIsolation`.
 - **`SettingsManager`** (`settings-manager.js`) — `electron-store` wrapper (v11+ ESM-only). `concurrentDownloads` is **deliberately not in the schema** (queue concurrency is hardcoded; exposing it just lets users pick rate-limiting values). Default `downloadFolder` resolves to `app.getPath('music')` at construction. Credential fields (`auddApiToken`, `acrHost`, `acrAccessKey`, `acrAccessSecret`) are **trimmed on write** (`_normalize`) — a pasted trailing space would otherwise silently 401 every recognition. See "Settings keys" below for the full schema.
 - **`sources.js`** — URL-classification + registry. `classifyUrl(url)` returns `{ source: 'youtube-music'|'spotify', kind: 'track'|'playlist', id? }` (or `null`), used by `DownloadManager`, `ExtractionJobManager`, and the `url:classify` IPC. The `SOURCES` registry holds `{ id, label, downloader }` per source.
 - **`stream-resolver.js`** — `handleStreamRequest(req, ytDlp)` backs the `setengine-stream://` protocol: it base64url-decodes a search query, resolves it to a direct YouTube audio URL via `ytDlp.getAudioStreamUrl()` (50-minute in-memory cache), and proxies the bytes with Range support — for previewing remote audio without downloading.
+- **`session-roots.js`** — tiny in-memory allow-list (`addSessionRoot` / `isUnderSessionRoot`) of directories the user explicitly chose this session via the Crate Sorter dialogs. The `setengine-audio://` handler consults it so source/destination folders outside Music/Downloads/Home (e.g. a library on an external `/Volumes/…` drive) can be previewed. Populated **only** inside the dialog-backed `sorter:*` IPC handlers — the renderer can't inject a path.
 
 **IPC** — `ipc-handlers.js` registers everything (see "IPC channel reference" below). `download:url`, `download:retry`, `download:track`, and `download:tracks` pass `null` for cookies (unauthenticated). `safeOutputDir()` there normalizes a renderer-supplied destination folder (expands `~`, requires an absolute path, else `null` → caller falls back to the configured folder). **Add new IPC here**, and expose it through the preload bridge.
 
@@ -134,6 +136,7 @@ Vanilla JS, no framework, imperative DOM (no templates). `src/renderer.js` impor
 - **`extract.js`** — **Set Extraction, as a job list + detail.** The list view has the URL box + EXTRACT (start several; they run in parallel) and one card per job (status dot, live phase/percent, delete ✕). Clicking a card opens the detail (tracklist, destination folder, per-track play/download, DOWNLOAD WHOLE SET → writes the files). Main is the source of truth: the page mirrors `getExtractionJobs()` and patches from `onExtractJobsUpdate` / `onExtractJobProgress`. **Navigating away does NOT cancel a job** — `destroy()` only unsubscribes, tears down audio, and stashes `{ view, selectedJobId, folderPath }`. Per-track downloads pass `jobId` + `trackIndex` so the ✔/progress state (stored on the job's `trackDownloads`) survives navigating off and back.
 - **`setmaker.js`** — **Set Maker**, three views in one page (library / rate / setlist): analyze a folder of local audio (BPM/key), star-rate tracks, then build a harmonically-ordered setlist via `setmaker:build`; import/export `.m3u`. Missing BPM/key can be detected and written back (`tags:detect-and-tag`).
 - **`match.js`** — **Match Maker (TuneMatch)**: import a local library, pick a track, and get harmonic-mixing match suggestions filtered by a BPM threshold; dedupe; detect + write missing BPM/key tags for path-bearing imports.
+- **`sorter.js`** — **Crate Sorter**, two views in one page (setup / sort). Setup: "Add folder(s)" (multi-select source folders, each scanned recursively for audio) + "Add folder(s)" destination crates. Sort: a left sidebar lists every song (filename-alphabetical, numeric-aware) with per-song status (pending / current / sorted / skipped / missing) and is clickable to jump back and re-sort; the main pane has a seekable player (a bare `new Audio()` **independent of the DOM**, so a re-render on toggle doesn't interrupt playback) plus a crate-toggle grid. Advancing **commits**: copies the file into each newly-selected crate via `sorter:copy-into-folders` (idempotent — already-copied crates lock as "COPIED"; advancing with nothing selected = skip). Keyboard: Space play/pause · ←/→ seek 5s (Shift 15s) · 1–9 toggle crate · Enter/↓ next · ↑ previous · Esc pause. State (songs / crates / index) is in-memory only, stashed on `app.sorterState`; **not persisted across restart**.
 - **`settings.js`** — engine choice + recognizer keys, audio quality, filename template, `recognizerMinConfidence`, and the yt-dlp / spotdl version + accelerator readout. The destination folder is **not** here — it lives on the Download page.
 
 **Shared renderer code:**
@@ -141,13 +144,13 @@ Vanilla JS, no framework, imperative DOM (no templates). `src/renderer.js` impor
 - `renderer/components/` — `modal.js`, `toast.js` (supports persistent durations).
 - `renderer/utils/escape-html.js` — shared HTML escaper (a few pages still define a local copy).
 - `renderer/tool-update.js` — `runYtdlpUpdateFlow` / `runSpotdlUpdateFlow` (both built on `runToolUpdateFlow`), used by the startup outdated-yt-dlp modal in `app.js` and the Settings UPDATE buttons.
-- `renderer/styles/` — `index.css` (global) plus page styles `extract.css`, `match.css`, `setmaker.css`.
+- `renderer/styles/` — `index.css` (global) plus page styles `extract.css`, `match.css`, `setmaker.css`, `sorter.css`.
 
 ### Custom protocols (`main.js`)
 
 Both schemes are registered privileged (`standard`, `secure`, `stream`, `supportFetchAPI`) before `app.whenReady`, and both appear in the CSP `media-src`:
 
-- **`setengine-audio://local/<base64url path>`** — serves a **local** audio file with proper HTTP **Range** support (so the audio element can seek, and so M4A files with a trailing `moov` atom load at all — see the long comment there). Access is restricted to files under the user's music / downloads / home directories. Used for previewing cached/extracted/library tracks (Set Extraction, Set Maker, Match Maker). Note the per-job extraction cache lives under `userData`, which is itself under the home dir, so it passes the safe-dir check.
+- **`setengine-audio://local/<base64url path>`** — serves a **local** audio file with proper HTTP **Range** support (so the audio element can seek, and so M4A files with a trailing `moov` atom load at all — see the long comment there). Access is restricted to files under the user's music / downloads / home directories **plus any directory the user explicitly picked this session via the Crate Sorter dialogs** (tracked in `session-roots.js` — this is what lets a Crate Sorter library on an external drive be previewed). Used for previewing cached/extracted/library tracks (Set Extraction, Set Maker, Match Maker, Crate Sorter). Note the per-job extraction cache lives under `userData`, which is itself under the home dir, so it passes the safe-dir check.
 - **`setengine-stream://<base64url query>`** — proxies a yt-dlp-resolved **remote** YouTube audio stream (via `stream-resolver.js`) for preview without downloading.
 
 ### CSP
@@ -188,6 +191,7 @@ All registered in `ipc-handlers.js`, all exposed via `preload.js`. `on*` subscri
 - **Set Maker / tagging:** `setmaker:build`, `setmaker:rescore-tour`, `setmaker:analyze-one`, `setmaker:analyze-batch` (event `setmaker:analysis-progress`), `setmaker:rate`, `setmaker:read-rating`, `setmaker:import-m3u`, `setmaker:export-m3u`, `tags:detect-and-tag` (event `tags:progress`).
 - **Match Maker:** `match:scan-folders`, `match:read-file`.
 - **Set Extraction:** `extract:start` (add job), `extract:cancel` (by id), `extract:delete` (by id), `extract:jobs` (list). Events: `extract:jobs-update`, `extract:job-progress`. Track downloads from a job: `download:track`, `download:tracks` (accept `jobId` + `trackIndex` to record state on the job).
+- **Crate Sorter:** `sorter:add-source-folder` (multi-select; scans each chosen folder recursively for audio), `sorter:add-dest-folders` (multi-select destination crates), `sorter:copy-into-folders` (`{ sourcePath, destFolders }` → copies into each crate; non-destructive: skips an identical-size collision, suffixes ` (n)` on a different-size one, never overwrites). All three register a session preview root (see `session-roots.js`). No events — request/response only.
 
 ## Health & auto-update
 
@@ -210,6 +214,7 @@ The Settings page shows `yt-dlp <version>`, `spotdl <version>`, and `Accelerator
 - **Preload `on*` must return an unsubscribe fn**, and pages must call them in `destroy()`.
 - **Per-track download state uses sentinels:** `copied-<i>` (served from cache) and `skipped-<i>` (no confident match). For Set Extraction these live on the job's `trackDownloads` map in main; real download ids resolve against the live download queue.
 - **`resolveBestVideoUrl` returns `null` to mean "skip"** — never substitute a guessed URL; a wrong file is worse than a missing one.
+- **Crate Sorter copies, never moves.** `sorter:copy-into-folders` is non-destructive (skip-if-identical, else ` (n)` suffix; never overwrites). Its state is in-memory only (`app.sorterState`), not persisted across restart. Previewing source files outside Music/Downloads/Home relies on `session-roots.js` — a path is only ever allow-listed from inside a dialog-backed `sorter:*` handler.
 - **When adding a source:** add a `sources.js` entry + wrapper module + `DownloadManager` wiring (it already dispatches on `item.source`).
 - **When adding IPC:** register in `ipc-handlers.js` **and** expose in `preload.js`; if it's an event, return an unsubscribe fn.
 - **Adding a remote origin** (image/script/font) requires editing the CSP in `index.html`.

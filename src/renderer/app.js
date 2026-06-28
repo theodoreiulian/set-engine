@@ -3,6 +3,7 @@ import { QueuePage } from './pages/queue.js';
 import { MatchPage } from './pages/match.js';
 import { SetMakerPage } from './pages/setmaker.js';
 import { ExtractPage } from './pages/extract.js';
+import { SorterPage } from './pages/sorter.js';
 import { SettingsPage } from './pages/settings.js';
 import { showModal } from './components/modal.js';
 import { runYtdlpUpdateFlow } from './tool-update.js';
@@ -12,6 +13,7 @@ const PAGES = {
   queue: QueuePage,
   match: MatchPage,
   setmaker: SetMakerPage,
+  sorter: SorterPage,
   extract: ExtractPage,
   settings: SettingsPage,
 };
@@ -34,6 +36,12 @@ const NAV_ITEMS = [
     page: 'setmaker',
     label: 'Set Maker',
     icon: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h13M3 12h13M3 18h9"/><path d="M19 8v9"/><circle cx="17" cy="17" r="2"/></svg>',
+  },
+  {
+    id: 'nav-sorter',
+    page: 'sorter',
+    label: 'Crate Sorter',
+    icon: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 4h6l2 2h10v4M3 4v13a2 2 0 0 0 2 2h7"/><path d="M17 13v8M13.5 17.5l3.5 3.5 3.5-3.5"/></svg>',
   },
   {
     id: 'nav-extract',

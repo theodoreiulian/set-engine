@@ -11,6 +11,7 @@ import SettingsManager from './main/settings-manager.js';
 import ExtractionJobManager from './main/extraction-manager.js';
 import { registerIpcHandlers } from './main/ipc-handlers.js';
 import { handleStreamRequest } from './main/stream-resolver.js';
+import { isUnderSessionRoot } from './main/session-roots.js';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -224,7 +225,10 @@ app.whenReady().then(async () => {
       const isInSafeDir =
         normalized.startsWith(musicDir + path.sep) ||
         normalized.startsWith(downloadsDir + path.sep) ||
-        normalized.startsWith(homeDir + path.sep);
+        normalized.startsWith(homeDir + path.sep) ||
+        // Directories the user explicitly picked this session via the Crate
+        // Sorter dialogs (e.g. a library on an external /Volumes/... drive).
+        isUnderSessionRoot(normalized);
       if (!isInSafeDir) {
         console.warn(`[SetEngine] setengine-audio blocked access to: ${normalized}`);
         return new Response('Forbidden', { status: 403 });
