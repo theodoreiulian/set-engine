@@ -20,7 +20,8 @@ import { classifyUrl } from './sources.js';
 import { extractSet } from './set-extractor.js';
 
 // How many extractions may scan/download at once. Extra jobs sit in `queued`
-// and start as slots free up. Kept low to stay under AudD/ACRCloud rate limits
+// and start as slots free up. Kept low because each running job drives its own
+// rate-limited recognition scan
 // and YouTube's per-IP bot-check threshold when many sets are fired off at once.
 const MAX_CONCURRENT_EXTRACTIONS = 3;
 

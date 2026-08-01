@@ -24,6 +24,19 @@ function escapeHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
+// Where a tracklist came from. This is trust information, not decoration: a
+// tracklist the uploader published is authoritative, whereas a recognized one is
+// a best guess that can miss tracks or name the wrong edit. The user should be
+// able to tell which they're looking at before they act on it.
+function sourceNoteHtml(job) {
+  if (!job || !job.engine || job.status !== 'done') return '';
+  if (String(job.engine).startsWith('youtube-')) {
+    const where = job.engine === 'youtube-chapters' ? 'chapters' : 'video description';
+    return `<div class="form-helper" style="margin-top:4px;">From the uploader's own tracklist (${where}) — exact, not recognized.</div>`;
+  }
+  return '<div class="form-helper" style="margin-top:4px;">Recognized from the audio — treat as a best guess.</div>';
+}
+
 function audioUrlForPath(p) {
   const utf8 = new TextEncoder().encode(String(p));
   let bin = '';
@@ -305,7 +318,7 @@ export class ExtractPage {
 
     const head = document.createElement('div');
     head.className = 'extract-detail-head';
-    head.innerHTML = `<div class="card-title">${escapeHtml(job.title || job.url)}</div>`;
+    head.innerHTML = `<div class="card-title">${escapeHtml(job.title || job.url)}</div>${sourceNoteHtml(job)}`;
     this.body.appendChild(head);
 
     // Destination folder (downloads from this job land here).
@@ -418,7 +431,7 @@ export class ExtractPage {
     if (phaseEl) phaseEl.textContent = label;
 
     const p = Math.max(0, Math.min(100, Math.round(job.percent || 0)));
-    // AudD scans server-side and reports no intermediate progress (0→100), so
+    // Some phases report no intermediate progress (0→100), so
     // show an indeterminate bar while scanning sits at 0% rather than a stuck bar.
     const indeterminate = job.status === 'queued' || (job.phase === 'scanning' && p === 0);
     if (fillEl) {

@@ -1,5 +1,5 @@
-import { ipcMain, dialog, shell } from 'electron';
-import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { ipcMain, dialog } from 'electron';
+import { readFile, stat, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import os from 'node:os';
@@ -11,6 +11,7 @@ import { detectKeyBpm } from './key-bpm-detector.js';
 import { lookupBpm, reconcileBpm } from './bpm-sources.js';
 import { resolveBestVideoUrl } from './track-match.js';
 import { addSessionRoot } from './session-roots.js';
+import { walkAudioDir } from './audio-files.js';
 
 // Normalize a renderer-supplied destination folder into a usable absolute path,
 // or null to let the caller fall back to the configured download folder. Guards
@@ -25,11 +26,6 @@ function safeOutputDir(dir) {
   }
   return path.isAbsolute(p) ? path.normalize(p) : null;
 }
-
-const MATCH_AUDIO_EXTS = new Set([
-  '.mp3', '.flac', '.wav', '.wave', '.aiff', '.aif',
-  '.ogg', '.m4a', '.mp4', '.aac', '.alac', '.wma', '.opus',
-]);
 
 // Parse an .m3u / .m3u8 playlist file. Returns the file paths in order,
 // optionally with the EXTINF duration/label that precedes them. Resolves
@@ -86,46 +82,7 @@ async function resolveExisting(p) {
   return null;
 }
 
-async function walkAudioDir(dirPath, relativeBase, out) {
-  let entries;
-  try {
-    entries = await readdir(dirPath, { withFileTypes: true });
-  } catch {
-    return;
-  }
-  for (const e of entries) {
-    if (e.name.startsWith('.')) continue;
-    const full = path.join(dirPath, e.name);
-    const rel = relativeBase ? `${relativeBase}/${e.name}` : e.name;
-    if (e.isDirectory()) {
-      await walkAudioDir(full, rel, out);
-    } else if (e.isFile()) {
-      const ext = path.extname(e.name).toLowerCase();
-      if (MATCH_AUDIO_EXTS.has(ext)) {
-        try {
-          const s = await stat(full);
-          out.push({ path: full, name: e.name, size: s.size, relativePath: rel });
-        } catch { /* unreadable, skip */ }
-      }
-    }
-  }
-}
-
 export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, settingsManager, extractionManager) {
-  // Open an external https URL in the user's default browser (e.g. the AudD /
-  // ACRCloud dashboard links in Settings). Only http/https — never local files.
-  ipcMain.handle('app:open-external', async (event, url) => {
-    if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
-      return { success: false, error: 'invalid url' };
-    }
-    try {
-      await shell.openExternal(url);
-      return { success: true };
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  });
-
   // Downloads run unauthenticated. The embedded sign-in browser was removed, so
   // there's no session to harvest cookies from — yt-dlp/spotdl fetch public
   // content directly (cookiePath is null). Spotify never needed cookies anyway.

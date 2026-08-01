@@ -13,7 +13,7 @@
   font-size: 12px;
 }
 
-/* Indeterminate progress: shown while AudD scans server-side with no granular
+/* Indeterminate progress: shown during a phase that reports no granular
    progress (it would otherwise sit at a stuck 0%). Scoped to this page's status
    bar so it never affects other pages' progress bars. */
 .extract-status .progress-bar {

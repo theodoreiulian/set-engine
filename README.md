@@ -24,7 +24,7 @@ SetEngine has four areas:
 - **Paste and download.** Drop a link from YouTube, YouTube Music, or Spotify. SetEngine works out whether it's one track or a whole playlist or album.
 - **Spotify too.** Spotify links download from the same box once spotdl is installed.
 - **Download queue.** Up to 5 downloads run at once, and they go faster when aria2c is installed.
-- **Set Extraction.** Point it at a recorded DJ set and it identifies the tracks using AudD or ACRCloud (you bring your own account key), then you download them individually or grab the whole set.
+- **Set Extraction.** Point it at a recorded DJ set and it produces the tracklist, then you download the tracks individually or grab the whole set. It works in two stages: if the uploader already published a tracklist (YouTube chapters or timestamps in the description) SetEngine just uses it — that's exact, instant, and it doesn't even download the set. Otherwise it identifies tracks from the audio — **no API key, no account, no cost.** Your machine computes the fingerprint and sends only that; your audio is never uploaded.
 - **BPM and key detection.** It works out the BPM and key of your local files right on your computer, double-checks the BPM against Deezer's free database, and writes both into the file's tags.
 - **Match Maker.** Pick a track and see what mixes well in key, grouped by how close the keys sit on the Camelot wheel and filtered by how far apart the BPMs can be.
 - **Set Maker.** Build setlists where every transition stays in key, star-rate your tracks, and import or export playlist files.
@@ -68,7 +68,9 @@ Where downloads get saved is set right on the Download page. Everything else liv
 
 - **Bitrate.** 128, 192, or 320 kbps.
 - **Filename format.** Either *Title* or *Title and Artist*. Either way, the artist is always saved into the file's tags.
-- **Set Extraction engine.** AudD (the default) or ACRCloud, plus the account key for whichever you choose. ACRCloud also lets you set how confident a match has to be before it's kept.
+- **Set Extraction.** A toggle for whether to use the uploader's own tracklist when one exists (leave it on), and how confident a match has to be before it's kept. There is no engine to choose and no key to enter — that's deliberate.
+
+  A caveat worth knowing: identification talks to an endpoint that isn't a published API, so it can stop working without warning. If it does, sets with a published tracklist keep working; the rest can't be identified until it's fixed.
 
 Downloads run 5 at a time. That's fixed, to stay under YouTube's limits, so it isn't something you set.
 
@@ -89,7 +91,9 @@ Key modules:
 - `ytdlp-wrapper.js` / `spotdl-wrapper.js`: the only modules that spawn the binaries; shared output-filename templating
 - `download-manager.js`: download queue and concurrency (engine chosen per item's source)
 - `extraction-manager.js` + `set-extractor.js`: the Set Extraction job system and per-job pipeline
-- `recognizers/`: AudD and ACRCloud fingerprint engines
+- `shazam/`: on-device fingerprinting + the recognition lookup
+- `tracklist-sources.js`: pulls a published tracklist out of YouTube chapters / description
+- `segmenter.js`: finds the transitions in a set so recognition only probes once or twice per track
 - `track-match.js`: resolves a recognized "Artist Title" to a concrete YouTube URL
 - `key-bpm-detector.js` / `audio-analyzer.js` / `dsp.js`: offline BPM and key detection and feature extraction
 - `set-maker.js`: harmonic-mixing setlist algorithm

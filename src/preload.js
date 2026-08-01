@@ -105,7 +105,6 @@ contextBridge.exposeInMainWorld('setengine', {
   sorterCopyIntoFolders: (opts) => ipcRenderer.invoke('sorter:copy-into-folders', opts),
 
   // ── System ────────────────────────────────────────────────────────
-  openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
   checkDeps: () => ipcRenderer.invoke('deps:check'),
   updateYtdlp: () => ipcRenderer.invoke('ytdlp:update'),
   getYtdlpHealth: () => ipcRenderer.invoke('ytdlp:health'),

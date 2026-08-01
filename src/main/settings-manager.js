@@ -22,24 +22,22 @@ const DEFAULTS = {
   extractionBetaAck: false,
 
   // ── Set Extraction (DJ-set tracklist identification) ──────────────────
-  // Which fingerprinting engine the Set Extraction page uses. Both need an API
-  // key (set below); neither works offline — song identification requires a
-  // reference database we don't ship.
-  recognizer: 'audd',           // 'audd' | 'acrcloud'
-  // AudD enterprise endpoint token (https://dashboard.audd.io). One request is
-  // billed per 12 s of audio; the first 300 are free.
-  auddApiToken: '',
-  // ACRCloud project credentials (https://console.acrcloud.com). The host is the
-  // project's identification endpoint, e.g. "identify-eu-west-1.acrcloud.com".
-  acrHost: '',
-  acrAccessKey: '',
-  acrAccessSecret: '',
+  // There is deliberately no engine setting. SetEngine once offered AudD and
+  // ACRCloud alongside Shazam; both were removed because they required an
+  // account, an API key and per-request payment. Recognition is now Shazam only
+  // (no key, no account, audio never uploaded), so there is nothing to choose
+  // and no credentials to store.
+
+  // Before recognizing anything, check whether the uploader already published a
+  // tracklist as chapters or timestamped description lines. When they have, it's
+  // exact and free and the audio never needs downloading. Off = always recognize.
+  usePublishedTracklist: true,
+
   // Minimum match confidence (0–100) a recognized track must clear to be kept.
-  // ACRCloud reports a per-match `score` we threshold on directly, so this is
-  // the main defense against false positives (the "old jazz song in a techno
-  // set" problem). AudD doesn't always return a score; when it doesn't, this is
-  // a no-op for AudD and the YouTube candidate validation in set-extractor.js
-  // carries precision instead. Higher = fewer wrong tracks, more genuine misses.
+  // Shazam reports no score of its own, so the recognizer derives one from
+  // corroboration: 70 for a track heard at one point in the set, 95 for one
+  // heard at two independent points. Raising this above 80 therefore keeps only
+  // corroborated tracks. Higher = fewer wrong tracks, more genuine misses.
   recognizerMinConfidence: 60,
 };
 
@@ -63,25 +61,22 @@ export default class SettingsManager {
         filenameTemplate: { type: 'string' },
         showDisclaimer: { type: 'boolean' },
         extractionBetaAck: { type: 'boolean' },
-        recognizer: { type: 'string', enum: ['audd', 'acrcloud'] },
-        auddApiToken: { type: 'string' },
-        acrHost: { type: 'string' },
-        acrAccessKey: { type: 'string' },
-        acrAccessSecret: { type: 'string' },
+        usePublishedTracklist: { type: 'boolean' },
         recognizerMinConfidence: { type: 'number', minimum: 0, maximum: 100 },
       },
     });
 
     this.defaults = defaults;
-  }
 
-  // Credential fields are trimmed on the way in: a trailing space pasted into an
-  // API token/key/secret/host would otherwise silently 401 every recognition with
-  // no obvious cause.
-  _normalize(key, value) {
-    const CREDENTIAL_KEYS = new Set(['auddApiToken', 'acrHost', 'acrAccessKey', 'acrAccessSecret']);
-    if (CREDENTIAL_KEYS.has(key) && typeof value === 'string') return value.trim();
-    return value;
+    // One-time cleanup for anyone upgrading from a build that had the AudD /
+    // ACRCloud engines. Two of these are *user credentials* sitting in a
+    // plaintext JSON file; now that no code path can use them, leaving them on
+    // disk would be a stale secret and nothing else. `recognizer` goes too —
+    // there is only one engine, so a persisted choice could only ever name one
+    // that no longer exists.
+    for (const key of ['recognizer', 'auddApiToken', 'acrHost', 'acrAccessKey', 'acrAccessSecret']) {
+      if (this.store.has(key)) this.store.delete(key);
+    }
   }
 
   /**
@@ -99,7 +94,7 @@ export default class SettingsManager {
    * @param {*} value
    */
   set(key, value) {
-    this.store.set(key, this._normalize(key, value));
+    this.store.set(key, value);
   }
 
   /**
@@ -116,7 +111,7 @@ export default class SettingsManager {
    */
   setAll(settings) {
     for (const [key, value] of Object.entries(settings)) {
-      this.store.set(key, this._normalize(key, value));
+      this.store.set(key, value);
     }
   }
 

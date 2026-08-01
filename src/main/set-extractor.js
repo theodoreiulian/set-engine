@@ -2,10 +2,13 @@
 //
 // Orchestrates DJ-set tracklist extraction end to end:
 //   1. Read the link's info (title + duration) via yt-dlp.
-//   2. Download the audio to a temp dir (128 kbps mono-ish MP3 — recognition
-//      doesn't need 320, and a smaller file uploads/scans faster).
-//   3. Hand the file to the selected recognizer (AudD or ACRCloud).
-//   4. Merge consecutive duplicate hits into the play-order tracklist.
+//   2. If the uploader already published a tracklist (chapters / timestamped
+//      description lines), use it and skip straight to step 5 — it's exact,
+//      free, and means the set never has to be downloaded at all.
+//   3. Otherwise download the audio to a temp dir (128 kbps mono-ish MP3 —
+//      recognition doesn't need 320, and a smaller file scans faster).
+//   4. Hand the file to the Shazam recognizer, then merge consecutive duplicate
+//      hits into the play-order tracklist.
 // The temp file is always cleaned up, and the whole flow is cancellable via an
 // AbortSignal. Progress is reported through `onProgress` as { phase, percent }.
 //
@@ -17,7 +20,8 @@ import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, rm, readdir, stat, mkdir, unlink } from 'node:fs/promises';
-import { getRecognizer } from './recognizers/index.js';
+import { recognize } from './shazam/recognize.js';
+import { parsePublishedTracklist } from './tracklist-sources.js';
 import { cleanTitle, primaryArtist } from './bpm-sources.js';
 import { resolveBestVideoUrl } from './track-match.js';
 
@@ -71,9 +75,6 @@ async function findDownloaded(tmpDir, id) {
 export async function extractSet(url, { ytDlp, settings, signal, onProgress, cacheDir } = {}) {
   const emit = (data) => { try { if (onProgress) onProgress(data); } catch (_) { /* ignore */ } };
 
-  // Validate engine + credentials before any heavy work so the error is instant.
-  const recognizer = getRecognizer(settings);
-
   if (!cacheDir) throw new Error('extractSet requires a cacheDir.');
 
   emit({ phase: 'info', percent: 0 });
@@ -93,11 +94,45 @@ export async function extractSet(url, { ytDlp, settings, signal, onProgress, cac
   const meta = { title: (info && info.title) || '', durationSec };
   emit({ phase: 'info', percent: 5, info: meta });
 
+  // ── Published tracklist ───────────────────────────────────────────────
+  // Checked before anything expensive. When the uploader listed the tracks
+  // themselves the answer is already exact — correct remix names, correct
+  // order, exact start times — so there is nothing for a recognizer to improve
+  // on, and the 90-minute audio download can be skipped outright.
+  let published = null;
+  if (settings.usePublishedTracklist !== false) {
+    try { published = parsePublishedTracklist(info); }
+    catch (_) { published = null; }               // never let parsing break an extraction
+  }
+
+  const engineLabel = published ? `youtube-${published.source}` : 'shazam';
+
   const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'setengine-extract-'));
   const id = crypto.randomUUID();
 
   try {
-    // ── Download audio ──────────────────────────────────────────────────
+    let merged;
+    if (published) {
+      emit({ phase: 'scanning', percent: 100 });
+      merged = dedupeTracks(published.entries);
+      console.log(`[SetEngine] used the uploader's published tracklist (${published.source}): ${merged.length} track(s) — no download, no recognition.`);
+    } else {
+      merged = await downloadAndRecognize();
+    }
+    emit({ phase: 'merging', percent: 100 });
+
+    // ── Caching ───────────────────────────────────────────────────────────
+    return await cacheAndFinish(merged);
+  } finally {
+    // Only the scratch download/scan dir is cleaned here. The job's cacheDir is
+    // owned by ExtractionJobManager and removed when the job is deleted (and the
+    // whole ExtractionCache root is wiped at app boot), so a cancelled/failed run
+    // leaves its partial cache in place until the user deletes the job.
+    try { await rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); } catch (_) { /* best-effort */ }
+  }
+
+  // ── Download + recognize (only when no tracklist was published) ───────
+  async function downloadAndRecognize() {
     await new Promise((resolve, reject) => {
       const dl = ytDlp.download(url, tmpDir, { bitrate: 128, filenameTemplate: id });
       const onAbort = () => { try { dl.cancel(); } catch (_) { /* gone */ } reject(new Error('Extraction cancelled.')); };
@@ -115,9 +150,10 @@ export async function extractSet(url, { ytDlp, settings, signal, onProgress, cac
 
     // ── Recognize ───────────────────────────────────────────────────────
     emit({ phase: 'scanning', percent: 0 });
-    const { tracks } = await recognizer.recognize(audioPath, {
+    const { tracks } = await recognize(audioPath, {
       signal,
       durationSec,
+      settings,
       onProgress: ({ done, total }) => emit({
         phase: 'scanning',
         percent: total ? Math.round((done / total) * 100) : 0,
@@ -125,12 +161,11 @@ export async function extractSet(url, { ytDlp, settings, signal, onProgress, cac
     });
 
     if (signal && signal.aborted) throw new Error('Extraction cancelled.');
+    return dedupeTracks(tracks || []);
+  }
 
-    // ── Merging ───────────────────────────────────────────────────────────
-    const merged = dedupeTracks(tracks || []);
-    emit({ phase: 'merging', percent: 100 });
-
-    // ── Caching ───────────────────────────────────────────────────────────
+  // ── Cache each track's audio, then report the finished tracklist ──────
+  async function cacheAndFinish(merged) {
     emit({ phase: 'caching', percent: 0 });
     await mkdir(cacheDir, { recursive: true });   // this job's private cache dir
 
@@ -205,13 +240,7 @@ export async function extractSet(url, { ytDlp, settings, signal, onProgress, cac
     await Promise.all(promises);
     if (signal && signal.aborted) throw new Error('Extraction cancelled.');
 
-    emit({ phase: 'done', percent: 100, tracks: merged, engine: recognizer.name, info: meta });
-    return { success: true, tracks: merged, engine: recognizer.name, info: meta };
-  } finally {
-    // Only the scratch download/scan dir is cleaned here. The job's cacheDir is
-    // owned by ExtractionJobManager and removed when the job is deleted (and the
-    // whole ExtractionCache root is wiped at app boot), so a cancelled/failed run
-    // leaves its partial cache in place until the user deletes the job.
-    try { await rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); } catch (_) { /* best-effort */ }
+    emit({ phase: 'done', percent: 100, tracks: merged, engine: engineLabel, info: meta });
+    return { success: true, tracks: merged, engine: engineLabel, info: meta };
   }
 }

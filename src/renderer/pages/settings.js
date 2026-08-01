@@ -57,25 +57,16 @@ export class SettingsPage {
     // --- Set Extraction (song recognition) ---
     form.appendChild(this.createFormGroup(
       'Set Extraction — Song Recognition',
-      `<select class="input" id="settings-recognizer" style="max-width: 260px;">
-        <option value="audd" selected>AudD (enterprise)</option>
-        <option value="acrcloud">ACRCloud</option>
-      </select>
-      <div class="form-helper" style="margin-top: 6px;">The engine the Set Extraction page uses to identify tracks in a DJ set. Both need an API key below.</div>
-      <div id="settings-audd-fields" style="margin-top: 12px;">
-        <input type="password" class="input" id="settings-audd-token" placeholder="AudD API token" spellcheck="false" autocomplete="off" style="max-width: 360px;">
-        <div class="form-helper" style="margin-top: 6px;">Get a token at <a href="#" class="ext-link" data-href="https://dashboard.audd.io/">dashboard.audd.io</a>.</div>
+      `<div class="checkbox-wrapper" style="margin-bottom: 14px;">
+        <input type="checkbox" id="settings-use-published">
+        <label for="settings-use-published" style="cursor:pointer;">Use the uploader's tracklist when there is one</label>
       </div>
-      <div id="settings-acr-fields" style="margin-top: 12px;">
-        <input type="text" class="input" id="settings-acr-host" placeholder="ACRCloud host (e.g. identify-eu-west-1.acrcloud.com)" spellcheck="false" autocomplete="off" style="max-width: 360px; margin-bottom: 8px;">
-        <input type="text" class="input" id="settings-acr-key" placeholder="Access key" spellcheck="false" autocomplete="off" style="max-width: 360px; margin-bottom: 8px;">
-        <input type="password" class="input" id="settings-acr-secret" placeholder="Access secret" spellcheck="false" autocomplete="off" style="max-width: 360px;">
-        <div class="form-helper" style="margin-top: 6px;">Create an Audio &amp; Video Recognition project at <a href="#" class="ext-link" data-href="https://console.acrcloud.com/">console.acrcloud.com</a> and copy its host + access key/secret.</div>
-      </div>
-      <div id="settings-confidence-fields" style="margin-top: 16px;">
+      <div class="form-helper" style="margin-bottom: 16px;">Many DJ sets already list their tracks as YouTube chapters or timestamps in the description. When they do, that list is exact and free, and SetEngine skips downloading and scanning the set entirely. Anything else is identified from the audio.</div>
+      <div class="form-helper" style="margin-bottom: 16px;">Identification needs no account and no API key, and costs nothing. Your machine computes the fingerprint and sends only that — your audio is never uploaded.</div>
+      <div style="margin-top: 16px;">
         <div class="form-helper" style="margin-bottom: 6px;">Minimum match confidence (0–100)</div>
         <input type="number" class="input" id="settings-recognizer-confidence" min="0" max="100" step="5" style="max-width: 120px;">
-        <div class="form-helper" style="margin-top: 6px;">Recognized tracks scoring below this are discarded as likely false positives. Higher = fewer wrong tracks, but more genuine ones missed. ACRCloud reports a per-match score to threshold on.</div>
+        <div class="form-helper" style="margin-top: 6px;">Recognized tracks scoring below this are discarded. A track heard at one point in the set scores 70; one heard at two independent points scores 95. Set this above 80 to keep only tracks confirmed twice.</div>
       </div>`
     ));
 
@@ -189,23 +180,8 @@ export class SettingsPage {
   }
 
   attachListeners() {
-    // Show only the credential fields relevant to the chosen recognizer.
-    const recognizerEl = document.getElementById('settings-recognizer');
-    if (recognizerEl) {
-      recognizerEl.addEventListener('change', () => this.syncRecognizerFields());
-    }
-
-    // External links (e.g. the AudD / ACRCloud dashboards) open in the
-    // system browser rather than navigating the app's own window.
-    this.container.querySelectorAll('a.ext-link').forEach((a) => {
-      a.addEventListener('click', (e) => {
-        e.preventDefault();
-        const url = a.dataset.href;
-        if (url && window.setengine && window.setengine.openExternal) {
-          window.setengine.openExternal(url);
-        }
-      });
-    });
+    // Nothing conditional left on this page: there is one recognition engine and
+    // it has no credentials, so every control is always visible.
   }
 
   async loadSettings() {
@@ -230,56 +206,26 @@ export class SettingsPage {
         }
       }
 
-      const recognizerEl = document.getElementById('settings-recognizer');
-      if (recognizerEl) recognizerEl.value = settings.recognizer || 'audd';
-      const auddTokenEl = document.getElementById('settings-audd-token');
-      if (auddTokenEl) auddTokenEl.value = settings.auddApiToken || '';
-      const acrHostEl = document.getElementById('settings-acr-host');
-      if (acrHostEl) acrHostEl.value = settings.acrHost || '';
-      const acrKeyEl = document.getElementById('settings-acr-key');
-      if (acrKeyEl) acrKeyEl.value = settings.acrAccessKey || '';
-      const acrSecretEl = document.getElementById('settings-acr-secret');
-      if (acrSecretEl) acrSecretEl.value = settings.acrAccessSecret || '';
+      const publishedEl = document.getElementById('settings-use-published');
+      if (publishedEl) publishedEl.checked = settings.usePublishedTracklist !== false;
       const confidenceEl = document.getElementById('settings-recognizer-confidence');
       if (confidenceEl) confidenceEl.value = settings.recognizerMinConfidence != null ? settings.recognizerMinConfidence : 60;
-      this.syncRecognizerFields();
     } catch (err) {
       showToast('Failed to load settings', 'error');
     }
   }
 
-  // Hide the credential block for whichever engine isn't selected. The minimum
-  // match confidence only applies to ACRCloud (AudD's response carries no score),
-  // so it's hidden unless ACRCloud is the selected engine.
-  syncRecognizerFields() {
-    const engine = document.getElementById('settings-recognizer')?.value || 'audd';
-    const auddFields = document.getElementById('settings-audd-fields');
-    const acrFields = document.getElementById('settings-acr-fields');
-    const confidenceFields = document.getElementById('settings-confidence-fields');
-    if (auddFields) auddFields.classList.toggle('hidden', engine !== 'audd');
-    if (acrFields) acrFields.classList.toggle('hidden', engine !== 'acrcloud');
-    if (confidenceFields) confidenceFields.classList.toggle('hidden', engine !== 'acrcloud');
-  }
-
   async handleSave() {
     const audioQuality = parseInt(document.getElementById('settings-quality')?.value || '320', 10);
     const filenameTemplate = document.getElementById('settings-filename-template')?.value || '%(title)s';
-    const recognizer = document.getElementById('settings-recognizer')?.value || 'audd';
-    const auddApiToken = (document.getElementById('settings-audd-token')?.value || '').trim();
-    const acrHost = (document.getElementById('settings-acr-host')?.value || '').trim();
-    const acrAccessKey = (document.getElementById('settings-acr-key')?.value || '').trim();
-    const acrAccessSecret = (document.getElementById('settings-acr-secret')?.value || '').trim();
+    const usePublishedTracklist = !!document.getElementById('settings-use-published')?.checked;
     const confidenceRaw = parseInt(document.getElementById('settings-recognizer-confidence')?.value, 10);
     const recognizerMinConfidence = Math.min(100, Math.max(0, Number.isFinite(confidenceRaw) ? confidenceRaw : 60));
 
     const settings = {
       audioQuality,
       filenameTemplate,
-      recognizer,
-      auddApiToken,
-      acrHost,
-      acrAccessKey,
-      acrAccessSecret,
+      usePublishedTracklist,
       recognizerMinConfidence,
     };
 
