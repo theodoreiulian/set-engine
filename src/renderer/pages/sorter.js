@@ -238,8 +238,10 @@ export class SorterPage {
       this.destFolders.push(f);
       added++;
     }
-    this._rerenderSetup();
+    if (this.view === 'sort') this._renderFolders();
+    else this._rerenderSetup();
     if (added === 0) showToast('Those crates are already in the list.', 'info', 3000);
+    else if (this.view === 'sort') showToast(`Added ${added} crate${added > 1 ? 's' : ''}.`, 'info', 2500);
   }
 
   _removeDest(i) {
@@ -314,6 +316,7 @@ export class SorterPage {
     root.querySelector('#sorter-next').addEventListener('click', () => this._advance());
     root.querySelectorAll('[data-folder-idx]').forEach((b) =>
       b.addEventListener('click', () => this._toggleFolder(this.destFolders[parseInt(b.dataset.folderIdx, 10)].path)));
+    root.querySelector('#sorter-add-crate').addEventListener('click', () => this._addDestFolders());
 
     // Sync the freshly-built DOM with any playback already in progress.
     this._updatePlayBtn();
@@ -370,7 +373,9 @@ export class SorterPage {
           <div class="sorter-seek-time">0:00 / 0:00</div>
         </div>
       </div>
-      <div class="sorter-folders-head">Sort into crates <span class="sorter-folders-hint">(press 1–9 to toggle)</span></div>
+      <div class="sorter-folders-head">Sort into crates <span class="sorter-folders-hint">(press 1–9 to toggle)</span>
+        <button class="btn-secondary sorter-add-crate" id="sorter-add-crate">+ Add crate</button>
+      </div>
       <div class="sorter-folders">${this._foldersHtml(song)}</div>
       <div class="sorter-actions">
         <button class="btn-secondary" id="sorter-prev" ${this.currentIndex <= 0 ? 'disabled' : ''}>← Previous</button>

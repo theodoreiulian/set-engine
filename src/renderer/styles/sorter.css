@@ -371,6 +371,9 @@
 
 /* Crate toggles */
 .sorter-folders-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
@@ -378,6 +381,12 @@
   margin-bottom: 12px;
   padding-bottom: 8px;
   border-bottom: 1px solid var(--border);
+}
+
+.sorter-add-crate {
+  margin-left: auto;
+  padding: 4px 10px;
+  font-size: 11px;
 }
 
 .sorter-folders-hint {
