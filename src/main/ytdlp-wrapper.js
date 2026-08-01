@@ -17,6 +17,11 @@ import { sanitizeFilenameTemplate } from './filename-template.js';
  * "Video unavailable" / "Private video" mean the video itself can't be fetched
  * by this account — not fixable from our side, but worth phrasing clearly.
  */
+// yt-dlp reports an external-downloader failure as "aria2c exited with code N".
+// 22 is aria2c's "bad or unexpected HTTP response header", which is what YouTube
+// triggers, but any non-zero code means the accelerator is the problem.
+const ARIA2C_FAILURE = /aria2c exited with code/i;
+
 function translateYtDlpError(code, stderr) {
   const text = (stderr || '').trim();
 
@@ -43,6 +48,11 @@ function translateYtDlpError(code, stderr) {
   }
   if (/Sign in to confirm you[’']?re not a bot/i.test(text)) {
     return 'YouTube is challenging this request as a bot. Wait a minute and retry; if it persists, update yt-dlp.';
+  }
+  // download() retries without aria2c on this, so a user only reaches this text
+  // if that retry failed too — meaning the accelerator wasn't the real problem.
+  if (ARIA2C_FAILURE.test(text)) {
+    return `${label} couldn't be downloaded — the download helper was rejected by the server. Retry in a moment; if it persists, update yt-dlp.`;
   }
 
   // Fall through: strip warnings, surface the actual ERROR: line if there is one
@@ -323,7 +333,7 @@ export default class YtDlpWrapper {
    * @param {string} [opts.filenameTemplate] — yt-dlp output template (default: %(title)s)
    * @returns {string[]}
    */
-  buildSongArgs({ url, outputFolder, bitrate = 320, cookiePath, filenameTemplate = '%(title)s' }) {
+  buildSongArgs({ url, outputFolder, bitrate = 320, cookiePath, filenameTemplate = '%(title)s', useAria2c = this.aria2cAvailable }) {
     const args = [
       '-x',
       '--audio-format', 'mp3',
@@ -336,7 +346,7 @@ export default class YtDlpWrapper {
       '--concurrent-fragments', '4',
     ];
 
-    if (this.aria2cAvailable) {
+    if (useAria2c) {
       args.push('--downloader', 'aria2c');
       args.push('--downloader-args', 'aria2c:-x 16 -s 16 -k 1M --console-log-level=warn --summary-interval=0');
     }
@@ -543,16 +553,70 @@ export default class YtDlpWrapper {
     return out;
   }
 
+  /**
+   * Download one track, transparently retrying without aria2c if the accelerator
+   * is what failed.
+   *
+   * aria2c is *only* a speed optimization, so a download must never fail because
+   * of it. YouTube periodically serves media URLs that aria2c can't handle — its
+   * multi-connection range requests come back with a response aria2c refuses to
+   * parse, and yt-dlp surfaces the opaque "aria2c exited with code 22" (its code
+   * for a bad/unexpected HTTP response header). It's intermittent and
+   * video-specific: the same args succeed on most videos and fail on others.
+   *
+   * Rather than try to predict which URLs are affected, fall back to yt-dlp's
+   * own downloader on any aria2c-class failure. The user loses a little speed on
+   * that track instead of losing the track.
+   */
   download(url, outputFolder, options = {}) {
-    const args = this.buildSongArgs({
-      url,
-      outputFolder,
-      cookiePath: options.cookiePath,
-      bitrate: options.bitrate || 320,
-      filenameTemplate: options.filenameTemplate || '%(title)s'
-    });
     const id = crypto.randomUUID();
-    return this.execute(args, id);
+    const emitter = new EventEmitter();
+    let cancelled = false;
+    let inner = null;
+
+    const attempt = (useAria2c) => {
+      const args = this.buildSongArgs({
+        url,
+        outputFolder,
+        cookiePath: options.cookiePath,
+        bitrate: options.bitrate || 320,
+        filenameTemplate: options.filenameTemplate || '%(title)s',
+        useAria2c,
+      });
+      inner = this.execute(args, id);
+      inner.on('progress', (p) => emitter.emit('progress', p));
+      inner.on('complete', (c) => emitter.emit('complete', c));
+      inner.on('error', (err) => {
+        // Only retry the accelerator's own failure, only once, and never after
+        // the user cancelled.
+        if (!cancelled && useAria2c && ARIA2C_FAILURE.test(err.stderr || '')) {
+          this._noteAria2cFailure(url);
+          attempt(false);
+          return;
+        }
+        emitter.emit('error', err);
+      });
+    };
+
+    attempt(this.aria2cAvailable);
+
+    emitter.cancel = () => {
+      cancelled = true;
+      if (inner) inner.cancel();
+    };
+    return emitter;
+  }
+
+  // Two aria2c failures in a session means it isn't working here (a proxy, a
+  // filtering network, an aria2c build YouTube dislikes). Stop paying the cost
+  // of a doomed first attempt on every subsequent track.
+  _noteAria2cFailure(url) {
+    this._aria2cFailures = (this._aria2cFailures || 0) + 1;
+    console.warn(`[SetEngine] aria2c failed on ${url} — retrying with yt-dlp's built-in downloader.`);
+    if (this._aria2cFailures >= 2 && this.aria2cAvailable) {
+      this.aria2cAvailable = false;
+      console.warn('[SetEngine] aria2c has failed twice; disabling it for the rest of this session. Downloads continue at normal speed.');
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -601,7 +665,14 @@ export default class YtDlpWrapper {
       if (code === 0) {
         emitter.emit('complete', { code });
       } else {
-        emitter.emit('error', new Error(translateYtDlpError(code, stderrBuffer)));
+        const err = new Error(translateYtDlpError(code, stderrBuffer));
+        // The message is deliberately rewritten for humans, which destroys the
+        // strings a caller would need to classify the failure. Keep the raw
+        // output on the error so `download()` can still detect an aria2c
+        // failure and retry without it.
+        err.stderr = stderrBuffer;
+        err.exitCode = code;
+        emitter.emit('error', err);
       }
     });
 
