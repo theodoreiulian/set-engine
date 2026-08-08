@@ -28,13 +28,52 @@ function escapeHtml(s) {
 // tracklist the uploader published is authoritative, whereas a recognized one is
 // a best guess that can miss tracks or name the wrong edit. The user should be
 // able to tell which they're looking at before they act on it.
+// Each published source gets named exactly, because they don't carry the same
+// authority: chapters and the description are the uploader's own word, a comment
+// is a listener's transcription, and MixesDB is a community wiki maintained by
+// neither. All three beat recognition, but the user should know which they have.
+const SOURCE_LABELS = {
+  'published-chapters': ['the uploader\'s own tracklist', 'chapters'],
+  'published-description': ['the uploader\'s own tracklist', 'video description'],
+  'published-comments': ['a listener\'s tracklist', 'top comment'],
+  'published-mixesdb': ['a community tracklist', 'MixesDB'],
+};
+
+// Short form for the per-row badge on a merged tracklist.
+const ROW_SOURCE_LABELS = {
+  'published-chapters': 'chapters',
+  'published-description': 'description',
+  'published-comments': 'comment',
+  'published-mixesdb': 'mixesdb',
+};
+
+// A published tracklist that didn't cover the whole set is supplemented by a
+// scan, and the engine label says so: "published-comments + shazam".
+function parseEngine(engine) {
+  const raw = String(engine || '');
+  const supplemented = / \+ shazam$/.test(raw);
+  const base = raw.replace(/ \+ shazam$/, '');
+  return { supplemented, base, labels: SOURCE_LABELS[base] || null };
+}
+
 function sourceNoteHtml(job) {
   if (!job || !job.engine || job.status !== 'done') return '';
-  if (String(job.engine).startsWith('youtube-')) {
-    const where = job.engine === 'youtube-chapters' ? 'chapters' : 'video description';
-    return `<div class="form-helper" style="margin-top:4px;">From the uploader's own tracklist (${where}) — exact, not recognized.</div>`;
+  const { supplemented, labels } = parseEngine(job.engine);
+  const notes = [];
+  if (labels) {
+    const [who, where] = labels;
+    notes.push(supplemented
+      ? `Started from ${who} (${where}), which only described part of the set — the rest was recognized from the audio.`
+      : `From ${who} (${where}) — exact, not recognized.`);
+  } else {
+    notes.push('Recognized from the audio — treat as a best guess.');
   }
-  return '<div class="form-helper" style="margin-top:4px;">Recognized from the audio — treat as a best guess.</div>';
+  // Said out loud rather than left for the user to notice. A short tracklist
+  // reading as a finished one is exactly how this failure stayed hidden.
+  if (job.sparse) {
+    notes.push('This is still short for a set this long. Unreleased dubs, white labels and bootlegs aren\'t in any source we can reach, so some tracks simply can\'t be named.');
+  }
+  return notes.map((n) => `<div class="form-helper" style="margin-top:4px;">${n}</div>`).join('');
 }
 
 function audioUrlForPath(p) {
@@ -389,6 +428,12 @@ export class ExtractPage {
     this.dlAllBtn = head.querySelector('#extract-dl-all-btn');
     this.dlAllBtn.addEventListener('click', () => this._downloadAll());
 
+    // Only badge the origin when the list actually mixes sources. On a wholly
+    // published or wholly recognized tracklist every row would carry the same
+    // badge, which is noise — the note under the title already says it.
+    const { supplemented, base } = parseEngine(job.engine);
+    const publishedLabel = ROW_SOURCE_LABELS[base] || 'published';
+
     const list = document.createElement('div');
     list.className = 'extract-list';
     tracks.forEach((t, i) => {
@@ -396,13 +441,26 @@ export class ExtractPage {
       row.className = 'extract-row';
       row.dataset.index = i;
       const label = t.artist ? `${t.artist} — ${t.title}` : t.title;
+      const origin = supplemented
+        ? (t.source === 'shazam'
+          ? { text: 'shazam', tip: 'Recognized from the audio — treat the name as a best guess.' }
+          : { text: publishedLabel, tip: 'Named by a person, not recognized — remix credits and spelling are reliable.' })
+        : null;
       row.innerHTML = `
         <button class="extract-play-btn" aria-label="Play/Pause">
           <svg viewBox="0 0 24 24" class="icon-play"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
           <svg viewBox="0 0 24 24" class="icon-pause hidden"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" fill="currentColor"/></svg>
         </button>
         <span class="extract-row-num">${String(i + 1).padStart(2, '0')}</span>
-        <span class="extract-row-title">${escapeHtml(label)}</span>
+        <span class="extract-row-title">${escapeHtml(label)}${origin
+          ? ` <span class="extract-row-src extract-row-origin" title="${escapeHtml(origin.tip)}">${escapeHtml(origin.text)}</span>`
+          : ''}${t.provider && t.provider !== 'youtube'
+          // Only flag the non-default source. SoundCloud tops out at 128 kbps, so
+          // a track found there is lower quality than one from YouTube Music —
+          // it's there because the track exists nowhere else, and the user should
+          // be able to see that rather than wonder why one file sounds different.
+          ? ` <span class="extract-row-src" title="Found on ${escapeHtml(t.provider)} — this track isn't on YouTube. Source quality is lower (128 kbps).">${escapeHtml(t.provider)}</span>`
+          : ''}</span>
         <div class="extract-row-actions">
           <button class="extract-dl-btn" aria-label="Download">
             <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" fill="currentColor"/></svg>
@@ -642,7 +700,11 @@ export class ExtractPage {
     let dlItem = null;
     if (dlId != null) {
       if (typeof dlId === 'string' && dlId.startsWith('copied-')) dlItem = { status: 'complete' };
-      else if (typeof dlId === 'string' && dlId.startsWith('skipped-')) dlItem = { status: 'error', error: 'No matching YouTube result found' };
+      // Skipped means "no candidate could be VERIFIED as this exact recording" —
+      // usually the specific version (an acappella, a particular remix) isn't on
+      // YouTube at all. Downloading the nearest thing would hand back a file
+      // with the right name and the wrong audio, so it is deliberately refused.
+      else if (typeof dlId === 'string' && dlId.startsWith('skipped-')) dlItem = { status: 'error', error: "Skipped — couldn't confirm this exact track on YouTube" };
       else dlItem = this.queueMap.get(dlId) || { status: 'queued' };
     }
 

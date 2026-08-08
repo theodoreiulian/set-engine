@@ -9,7 +9,7 @@ import { writeRating, readRating, writeBpmKey } from './rating-writer.js';
 import { analyzeTrack } from './audio-analyzer.js';
 import { detectKeyBpm } from './key-bpm-detector.js';
 import { lookupBpm, reconcileBpm } from './bpm-sources.js';
-import { resolveBestVideoUrl } from './track-match.js';
+import { resolveBestVideo } from './track-match.js';
 import { addSessionRoot } from './session-roots.js';
 import { walkAudioDir } from './audio-files.js';
 
@@ -532,19 +532,21 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
       }
 
       if (!query) return { success: false, error: 'query is required' };
-      // No usable cache file → resolve to a YouTube URL whose title matches the
-      // detected track. null = no confident match → skip rather than download a
-      // wrong file.
-      const url = await resolveBestVideoUrl(ytDlp, query, title || query, artist);
-      if (!url) {
+      // No usable cache file → resolve to a video VERIFIED to be this recording
+      // (title, artist, version and duration all checked against its real
+      // metadata). null = nothing could be verified → skip rather than download a
+      // wrong file under the right name.
+      const target = await resolveBestVideo(ytDlp, query, title || query, artist);
+      if (!target) {
         if (typeof trackIndex === 'number') record('skipped-' + trackIndex);
-        return { success: false, skipped: true, error: `No YouTube result matched "${title || query}" — skipped to avoid a wrong download.` };
+        return { success: false, skipped: true, error: `Couldn't verify a YouTube match for "${title || query}" — skipped to avoid downloading the wrong track.` };
       }
-      const id = await downloadManager.addDownload(url, null, {
+      const id = await downloadManager.addDownload(target.url, null, {
         title: title || query,
         filenameTemplate: safeTitle,
         outputDir: safeDir || undefined,
         source: 'youtube-music',
+        expectedDurationSec: target.durationSec,
       });
       record(id);
       return { success: true, id };
@@ -602,15 +604,17 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
           if (copied) {
             idToPush = 'copied-' + i;
           } else {
-            // No usable cache file → resolve to a YouTube URL whose title matches
-            // the detected track. null = no confident match → skip this track.
-            const url = await resolveBestVideoUrl(ytDlp, query, title || query, artist);
-            if (url) {
-              idToPush = await downloadManager.addDownload(url, null, {
+            // No usable cache file → resolve to a video VERIFIED to be this
+            // recording. null = nothing could be verified → skip this track
+            // rather than hand back a correctly-named wrong file.
+            const target = await resolveBestVideo(ytDlp, query, title || query, artist);
+            if (target) {
+              idToPush = await downloadManager.addDownload(target.url, null, {
                 title: title || query,
                 filenameTemplate: safeTitle,
                 outputDir: destDir,
                 source: 'youtube-music',
+                expectedDurationSec: target.durationSec,
               });
             }
           }

@@ -157,8 +157,9 @@ export class App {
       await showModal(
         'Set Extraction (Beta)',
         `<p>Set Extraction is a <strong>beta feature</strong> and still in active development.</p>
-        <p>Tracklists are identified by audio fingerprinting, which is <strong>not always accurate</strong>: unreleased IDs, bootlegs, mashups, and heavily-edited tracks often can't be matched, and some results may be wrong or missing entirely.</p>
-        <p>Treat the output as a starting point, not a definitive tracklist.</p>`,
+        <p>When the uploader published a tracklist — as chapters, description timestamps, or a pinned comment — SetEngine uses it, and the result is exact.</p>
+        <p>Otherwise the tracklist is identified from the audio, and that has real limits. Measured across five full DJ sets: roughly <strong>one track in seven isn't in the catalog at all</strong> (unreleased IDs, white labels, promos, and artists playing their own edits), and roughly <strong>one in six comes back under a different name</strong>, because the same recording is often indexed more than once under bootleg re-uploads.</p>
+        <p>Tracks it does report are cross-checked against the audio's own timing, so wrong entries are rare — but a set can still come back incomplete. Treat it as a strong starting point, not a definitive tracklist.</p>`,
         ['GOT IT']
       );
 

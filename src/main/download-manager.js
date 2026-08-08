@@ -1,5 +1,6 @@
 import pLimit from 'p-limit';
 import crypto from 'node:crypto';
+import path from 'node:path';
 import { classifyUrl } from './sources.js';
 
 const TERMINAL_STATUSES = new Set(['complete', 'error', 'cancelled']);
@@ -100,6 +101,10 @@ export default class DownloadManager {
       _skipInfo: !!opts.title,
       _outputDir: opts.outputDir || null,
       _filenameTemplate: opts.filenameTemplate || null,
+      // Set by callers that verified the target before queueing it (Set
+      // Extraction). Enables the post-download integrity check; absent for
+      // ordinary Download-tab items, which have nothing to compare against.
+      _expectedDurationSec: Number(opts.expectedDurationSec) || 0,
     };
 
     this.queue.set(id, item);
@@ -196,6 +201,30 @@ export default class DownloadManager {
   }
 
   /**
+   * Verify a finished download against the expectation its requester recorded.
+   * Returns an error message when the file is wrong, or null when it's fine.
+   *
+   * Deletes a mismatched file: leaving it on disk under the requested name is
+   * exactly the failure this guards against — right name, wrong recording.
+   */
+  async _verifyDownloadedItem(item) {
+    try {
+      const { verifyDownloadedAudio } = await import('./download-verify.js');
+      const { sanitizeFilenameTemplate } = await import('./filename-template.js');
+      const dir = item._outputDir || this.outputDir;
+      const base = sanitizeFilenameTemplate(item._filenameTemplate || this.filenameTemplate);
+      const file = path.join(dir, `${base}.mp3`);
+      const check = await verifyDownloadedAudio(file, { expectedDurationSec: item._expectedDurationSec });
+      if (check.ok) return null;
+      try { const { unlink } = await import('node:fs/promises'); await unlink(file); } catch (_) { /* best-effort */ }
+      console.error(`[SetEngine] discarded "${item.title}": ${check.reason} (${item.url})`);
+      return `Downloaded file didn't match the expected track (${check.reason}) — discarded.`;
+    } catch (_) {
+      return null;                              // never fail a download over the check itself
+    }
+  }
+
+  /**
    * Run yt-dlp for a single item (song or playlist child).
    * If `parent` is provided, playlist progress + finalization are updated.
    * Returns a promise that always resolves (errors are captured into item.error).
@@ -240,7 +269,28 @@ export default class DownloadManager {
         resolve();
       });
 
-      dl.on('complete', () => {
+      dl.on('complete', async () => {
+        // Opt-in integrity check. Set Extraction knows how long the recording it
+        // verified actually is, so it passes that through; if what landed on disk
+        // isn't that length, the file is not what we asked for and must not be
+        // presented as complete. Plain Download-tab items carry no expectation
+        // and skip this entirely.
+        if (item._expectedDurationSec > 0) {
+          const bad = await this._verifyDownloadedItem(item);
+          if (bad) {
+            item.status = 'error';
+            item.error = bad;
+            this._emitError(item);
+            if (parent) {
+              this._updatePlaylistProgress(parent);
+              this._maybeFinalizePlaylist(parent);
+            } else {
+              this._broadcast();
+            }
+            resolve();
+            return;
+          }
+        }
         item.status = 'complete';
         item.progress = 100;
         item.speed = '';

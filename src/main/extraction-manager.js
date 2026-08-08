@@ -64,6 +64,8 @@ export default class ExtractionJobManager {
       engine: null,
       info: null,
       error: null,
+      sparse: false,           // tracklist still looks short for the runtime
+      supplemented: false,     // a partial published list was topped up by a scan
       createdAt: Date.now(),
       cacheDir: path.join(ExtractionJobManager.cacheRoot(), id),
       trackDownloads: {},      // { [trackIndex]: downloadId | sentinel }
@@ -112,6 +114,8 @@ export default class ExtractionJobManager {
       job.tracks = (res && res.tracks) || [];
       job.engine = (res && res.engine) || null;
       job.info = (res && res.info) || job.info;
+      job.sparse = Boolean(res && res.sparse);
+      job.supplemented = Boolean(res && res.supplemented);
       job.status = 'done';
       job.phase = 'done';
       job.percent = 100;

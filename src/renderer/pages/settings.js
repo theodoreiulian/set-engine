@@ -61,12 +61,12 @@ export class SettingsPage {
         <input type="checkbox" id="settings-use-published">
         <label for="settings-use-published" style="cursor:pointer;">Use the uploader's tracklist when there is one</label>
       </div>
-      <div class="form-helper" style="margin-bottom: 16px;">Many DJ sets already list their tracks as YouTube chapters or timestamps in the description. When they do, that list is exact and free, and SetEngine skips downloading and scanning the set entirely. Anything else is identified from the audio.</div>
+      <div class="form-helper" style="margin-bottom: 16px;">Many DJ sets already list their tracks — as YouTube chapters, as timestamps in the description, or in a pinned comment. When they do, that list is exact and free, and SetEngine skips downloading and scanning the set entirely. Anything else is identified from the audio.</div>
       <div class="form-helper" style="margin-bottom: 16px;">Identification needs no account and no API key, and costs nothing. Your machine computes the fingerprint and sends only that — your audio is never uploaded.</div>
       <div style="margin-top: 16px;">
-        <div class="form-helper" style="margin-bottom: 6px;">Minimum match confidence (0–100)</div>
+        <div class="form-helper" style="margin-bottom: 6px;">How much evidence to require (0–100)</div>
         <input type="number" class="input" id="settings-recognizer-confidence" min="0" max="100" step="5" style="max-width: 120px;">
-        <div class="form-helper" style="margin-top: 6px;">Recognized tracks scoring below this are discarded. A track heard at one point in the set scores 70; one heard at two independent points scores 95. Set this above 80 to keep only tracks confirmed twice.</div>
+        <div class="form-helper" style="margin-top: 6px;">SetEngine confirms a track by checking that the audio keeps lining up with the same record as the set plays on. Above 80 it keeps only tracks confirmed that way — the cleanest tracklist, but a briefly-played track can be dropped. Below 30 it also keeps weaker, repeated matches. The default sits between the two.</div>
       </div>`
     ));
 

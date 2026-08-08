@@ -233,3 +233,28 @@
 .text-success { color: var(--brand-primary); }
 .text-danger { color: #f44336; }
 .flex-space-between { display: flex; justify-content: space-between; align-items: center; width: 100%; }
+
+/* Marks a track that had to be sourced outside YouTube (currently SoundCloud).
+   Deliberately quiet — it's information, not a warning: the track is there
+   because it exists nowhere else, but its source is 128 kbps so it will sound
+   different from the rest of the set. */
+.extract-row-src {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--border, #333);
+  border-radius: 3px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted, #888);
+  vertical-align: middle;
+}
+
+/* Where a row's name came from, shown only on a merged tracklist. Deliberately
+   quieter than the provider badge next to it: the provider badge warns about
+   audio quality, this one is just provenance. */
+.extract-row-origin {
+  border-style: dashed;
+  opacity: 0.75;
+}

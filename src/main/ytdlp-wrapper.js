@@ -389,13 +389,24 @@ export default class YtDlpWrapper {
    * @param {object} opts
    * @param {string} opts.url          — YouTube URL
    * @param {string} [opts.cookiePath] — path to Netscape cookie file
+   * @param {boolean} [opts.withComments] — also fetch top-level comments
    * @returns {string[]}
    */
-  buildUrlInfoArgs({ url, cookiePath }) {
+  buildUrlInfoArgs({ url, cookiePath, withComments }) {
     const args = [
       '--dump-single-json',
       '--no-download',
     ];
+
+    // Comments are a separate, much slower pass (a distinct paginated endpoint),
+    // so they are opt-in: Set Extraction only asks once chapters and description
+    // have both come up empty. Sorted by top and capped, because a tracklist
+    // comment is invariably one of the most-upvoted ones and pulling thousands of
+    // replies would cost minutes for nothing.
+    if (withComments) {
+      args.push('--write-comments');
+      args.push('--extractor-args', 'youtube:comment_sort=top;max_comments=80,all,80,0');
+    }
 
     if (cookiePath) {
       args.push('--cookies', cookiePath);
@@ -405,9 +416,9 @@ export default class YtDlpWrapper {
     return args;
   }
 
-  async getVideoInfo(url, cookiePath) {
-    const args = this.buildUrlInfoArgs({ url, cookiePath });
-    return this.executeJson(args);
+  async getVideoInfo(url, cookiePath, opts = {}) {
+    const args = this.buildUrlInfoArgs({ url, cookiePath, withComments: opts.withComments });
+    return this.executeJson(args, { timeoutMs: opts.timeoutMs || 0, signal: opts.signal || null });
   }
 
   async getPlaylistInfo(url, cookiePath) {
@@ -457,11 +468,20 @@ export default class YtDlpWrapper {
 
   /**
    * Run `yt-dlp <target> --flat-playlist --dump-json` and return the parsed
-   * NDJSON entries (one JSON object per result line). Best-effort: resolves to
-   * `[]` on any failure (yt-dlp missing, network, parse). Shared by searchMusic
-   * and searchYouTube.
+   * NDJSON entries.
+   *
+   * Returns `{ ok, entries }`, and the distinction is load-bearing: a search
+   * that *failed* (timeout, throttling, yt-dlp missing) must not look identical
+   * to a search that genuinely found nothing. It used to resolve `[]` for both,
+   * which was harmless while YouTube was the only source — but once
+   * `track-match.js` gained a SoundCloud fallback, a throttled YouTube search
+   * silently became "YouTube doesn't have this track", and the fallback fired
+   * for tracks YouTube had all along. Measured during a heavy concurrent run,
+   * that pushed 56 of 159 tracks onto SoundCloud and wrecked both quality and
+   * accuracy. The caller now retries instead.
+   *
    * @param {string} target — a search URL or `ytsearchN:` expression
-   * @returns {Promise<object[]>}
+   * @returns {Promise<{ ok: boolean, entries: object[] }>}
    */
   _flatSearch(target, extraArgs = []) {
     const args = [target, '--flat-playlist', '--dump-json', '--no-warnings', ...extraArgs];
@@ -472,28 +492,31 @@ export default class YtDlpWrapper {
       const finish = (val) => { if (settled) return; settled = true; clearTimeout(timer); resolve(val); };
       // A hung yt-dlp (network stall) would otherwise leave this promise pending
       // forever and block the track that's awaiting it (and a slot in the cache
-      // download loop). Kill it after a bound and resolve [] — search is best-effort.
+      // download loop). Kill it after a bound; that counts as a failure, not as
+      // an empty result.
       const timer = setTimeout(() => {
         try { if (proc) proc.kill('SIGKILL'); } catch (_) { /* gone */ }
-        finish([]);
+        finish({ ok: false, entries: [] });
       }, 20000);
       try {
         proc = spawn('yt-dlp', args, { stdio: ['ignore', 'pipe', 'pipe'] });
       } catch (_) {
-        finish([]);
+        finish({ ok: false, entries: [] });
         return;
       }
       proc.stdout.on('data', (chunk) => { stdoutBuf += chunk.toString(); });
       proc.stderr.on('data', () => { /* search is best-effort; ignore stderr */ });
-      proc.on('error', () => finish([]));
-      proc.on('close', () => {
+      proc.on('error', () => finish({ ok: false, entries: [] }));
+      proc.on('close', (code) => {
         const out = [];
         for (const line of stdoutBuf.split('\n')) {
           const s = line.trim();
           if (!s) continue;
           try { out.push(JSON.parse(s)); } catch (_) { /* skip bad line */ }
         }
-        finish(out);
+        // A clean exit with zero results is a real "nothing found". A non-zero
+        // exit that produced nothing is a failure worth retrying.
+        finish({ ok: code === 0 || out.length > 0, entries: out });
       });
     });
   }
@@ -515,7 +538,7 @@ export default class YtDlpWrapper {
     // The music.youtube.com search URL carries no result cap, so bound it with
     // --playlist-end. We pull a few extra entries because YT Music interleaves
     // non-song `YoutubeTab` browse pages we filter out below. (Songs only.)
-    const entries = await this._flatSearch(
+    const { ok, entries } = await this._flatSearch(
       `https://music.youtube.com/search?q=${encodeURIComponent(query)}`,
       ['--playlist-end', String(n * 3)],
     );
@@ -525,7 +548,51 @@ export default class YtDlpWrapper {
       out.push({ id: e.id, url: `https://www.youtube.com/watch?v=${e.id}`, title: e.title || '' });
       if (out.length >= n) break;
     }
-    return out;
+    return { ok, results: out };
+  }
+
+  /**
+   * Search SoundCloud (`scsearchN:`).
+   *
+   * This is the fallback that stops Set Extraction skipping tracks: SoundCloud
+   * is where DJ culture actually lives — bootlegs, edits, white labels, promos
+   * and remixes that were never released to a streaming catalogue and therefore
+   * do not exist on YouTube at all. Measured, it carries tracks YouTube simply
+   * doesn't have (e.g. "Traumer — Agenou (Y.M.O. Remix)").
+   *
+   * Unlike YouTube, SoundCloud's `--flat-playlist` output is FULLY populated —
+   * title, track, uploader, duration, genre — so candidates can be verified
+   * without paying for a second metadata fetch each.
+   *
+   * Returns the same `{ id, url, title }` shape as the YouTube searches, plus
+   * the metadata fields, so `track-match.js` can treat every provider alike.
+   * `webpage_url` is used rather than `url`, because the latter is an
+   * api.soundcloud.com address that isn't a downloadable page.
+   * @param {string} query
+   * @param {number} [limit=5]
+   * @returns {Promise<Array<{ id, url, title, uploader, duration }>>}
+   */
+  async searchSoundCloud(query, limit = 5) {
+    const n = Math.max(1, Math.min(20, Number(limit) || 5));
+    const { ok, entries } = await this._flatSearch(`scsearch${n}:${query}`);
+    const out = [];
+    for (const e of entries) {
+      const url = e && (e.webpage_url || e.url);
+      if (!e || !url || !/soundcloud\.com/.test(url)) continue;
+      out.push({
+        id: String(e.id || ''),
+        url,
+        title: e.title || e.track || '',
+        track: e.track || '',
+        uploader: e.uploader || '',
+        duration: Number(e.duration) || 0,
+        provider: 'soundcloud',
+        // Flat SoundCloud results are complete enough to verify as-is.
+        prefetched: true,
+      });
+      if (out.length >= n) break;
+    }
+    return { ok, results: out };
   }
 
   /**
@@ -538,7 +605,7 @@ export default class YtDlpWrapper {
    */
   async searchYouTube(query, limit = 5) {
     const n = Math.max(1, Math.min(20, Number(limit) || 5));
-    const entries = await this._flatSearch(`ytsearch${n}:${query}`);
+    const { ok, entries } = await this._flatSearch(`ytsearch${n}:${query}`);
     const out = [];
     for (const e of entries) {
       // Keep only playable videos. ytsearch normally returns videos, but guard
@@ -550,7 +617,7 @@ export default class YtDlpWrapper {
       out.push({ id: e.id, url: `https://www.youtube.com/watch?v=${e.id}`, title: e.title || '' });
       if (out.length >= n) break;
     }
-    return out;
+    return { ok, results: out };
   }
 
   /**
@@ -698,7 +765,15 @@ export default class YtDlpWrapper {
    * @param {string[]} args — yt-dlp arguments
    * @returns {Promise<object>} — parsed JSON from stdout
    */
-  executeJson(args) {
+  /**
+   * Run yt-dlp and parse its JSON output.
+   *
+   * `timeoutMs` and `signal` are optional and exist for the slow optional passes
+   * (notably `--write-comments`, which paginates a separate endpoint): without a
+   * bound, a stalled fetch would hang an extraction job forever with no way to
+   * cancel it.
+   */
+  executeJson(args, { timeoutMs = 0, signal = null } = {}) {
     return new Promise((resolve, reject) => {
       const proc = spawn('yt-dlp', args, {
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -706,6 +781,23 @@ export default class YtDlpWrapper {
 
       let stdoutBuffer = '';
       let stderrBuffer = '';
+      let settled = false;
+      const finish = (fn, arg) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (signal) signal.removeEventListener('abort', onAbort);
+        fn(arg);
+      };
+      const kill = () => { try { proc.kill('SIGKILL'); } catch (_) { /* already gone */ } };
+      const onAbort = () => { kill(); finish(reject, new Error('Cancelled.')); };
+      const timer = timeoutMs
+        ? setTimeout(() => { kill(); finish(reject, new Error(`yt-dlp timed out after ${Math.round(timeoutMs / 1000)}s`)); }, timeoutMs)
+        : null;
+      if (signal) {
+        if (signal.aborted) { onAbort(); return; }
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
 
       proc.stdout.on('data', (chunk) => {
         stdoutBuffer += chunk.toString();
@@ -718,18 +810,18 @@ export default class YtDlpWrapper {
       proc.on('close', (code) => {
         if (code === 0) {
           try {
-            resolve(JSON.parse(stdoutBuffer));
+            finish(resolve, JSON.parse(stdoutBuffer));
           } catch (parseErr) {
-            reject(new Error(`Failed to parse yt-dlp JSON output: ${parseErr.message}`));
+            finish(reject, new Error(`Failed to parse yt-dlp JSON output: ${parseErr.message}`));
           }
         } else {
-          reject(new Error(
+          finish(reject, new Error(
             `yt-dlp exited with code ${code}${stderrBuffer ? ': ' + stderrBuffer.trim() : ''}`
           ));
         }
       });
 
-      proc.on('error', (err) => reject(err));
+      proc.on('error', (err) => finish(reject, err));
     });
   }
 
