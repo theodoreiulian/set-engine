@@ -45,16 +45,26 @@
 // request a few seconds later succeeded. A 3 s gap sustained 34/34 with no 429
 // at all; a 2 s gap ran 20, took two 429s, then sustained another 18.
 //
-// So a 429 is cheap and local, not a ban. We pause a couple of seconds and retry
-// the SAME probe. (The previous code slept 60 s, abandoned the probe, and failed
-// the entire extraction after three of them — all based on a "~90 s to clear"
-// figure that re-measurement did not reproduce.)
+// So a 429 is cheap and local, not a ban: we wait and retry the SAME probe.
+// (An older version slept 60 s, abandoned the probe, and failed the entire
+// extraction after three of them — based on a "~90 s to clear" figure that
+// re-measurement did not reproduce.)
+//
+// The pacing that enforces those figures lives in rate-gate.js, and it is
+// MACHINE-wide ON PURPOSE. The limit is per machine, so per-run pacing is not
+// pacing at all: three parallel extractions each waiting their own 3 s emitted a
+// request every second, throttled each other, and all three died with "Shazam is
+// rate-limiting this machine and did not recover". Every lookup — spot check and
+// full scan, every job, and every *other* SetEngine process (a second window, an
+// eval capture run) — now shares one queue, one adaptive gap and one shared
+// reservation. Never add a request path that bypasses acquireShazamSlot().
 
 import { net } from 'electron';
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import { signatureFor } from './signature.js';
 import { tracklistFrom, proves } from './anchor.js';
+import { acquireShazamSlot, noteShazamAnswered, noteShazamRateLimited, shazamGateStatus } from './rate-gate.js';
 
 // Shazam's signature generator expects 16 kHz mono; feeding it that directly
 // avoids an internal resample.
@@ -67,16 +77,19 @@ const SAMPLE_RATE = 16000;
 // the *neighbouring* track. So 8 s, deliberately.
 const PROBE_SEC = 8;
 
-// Measured sustainable spacing (34/34 clean at 3 s).
-const REQUEST_GAP_MS = 3000;
+// Attempts per probe before the moment is given up as unheard. Pacing and
+// backoff between attempts are the gate's job (rate-gate.js) — by the last
+// attempt the shared cooldown is tens of seconds, so this is a genuinely
+// patient retry, not a burst.
+const MAX_PROBE_ATTEMPTS = 6;
 
-// A 429 empties briefly and refills within seconds — back off and retry the same
-// probe rather than losing it.
-const RATE_LIMIT_BACKOFF_MS = 2500;
-const MAX_PROBE_ATTEMPTS = 4;
-
-// Give up only if the endpoint is refusing us persistently across the whole run.
-const MAX_CONSECUTIVE_RATE_LIMITS = 12;
+// Circuit breaker. If this many probes IN A ROW go unheard — that is, 3 × 6
+// throttled attempts spanning minutes of shared backoff — the endpoint isn't
+// pacing us, it's refusing us, and grinding through a 340-probe budget at that
+// rate would take hours. Stop and report on what was heard: a partial scan (or
+// a published tracklist that no longer gets second-guessed) beats a job that
+// hangs. Measured recovery is seconds, so reaching this is genuinely abnormal.
+const MAX_CONSECUTIVE_UNHEARD = 3;
 
 // Budget. Scales with runtime so a 60-minute set and a 160-minute set both get
 // comparable resolution, with a floor and a ceiling on wall-clock cost.
@@ -116,12 +129,6 @@ function endpointUrl() {
   return `https://amp.shazam.com/discovery/v5/en/US/android/-/tag/${crypto.randomUUID()}/${crypto.randomUUID()}`
     + '?sync=true&webv3=true&sampling=true&connected=&shazamapiversion=v3&sharehub=true&video=v3';
 }
-
-const sleep = (ms, signal) => new Promise((resolve) => {
-  if (signal && signal.aborted) return resolve();
-  const t = setTimeout(resolve, ms);
-  if (signal) signal.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
-});
 
 // Decoding a short slice per probe (rather than holding the whole set at 16 kHz)
 // keeps memory flat on long sets, and lets a probe be placed anywhere on demand
@@ -271,61 +278,91 @@ function probeDuration(filePath) {
   });
 }
 
-// Shared request state: pacing, 429 accounting and network-failure tallies. One
-// of these is threaded through every probe of a run so the measured rate limit
-// is respected across the whole run, including the spot check that may precede
-// the full scan.
+// Per-run tallies. Pacing itself is NOT here — it is machine-wide, in
+// rate-gate.js. What a run still needs to know is whether it ever got a real
+// answer, because a scan that was refused end to end must say so rather than
+// hand back an empty tracklist (see the guard at the end of `recognize`).
 function newProbeState() {
   return {
-    lastRequestAt: 0, consecutiveRateLimits: 0, networkFailures: 0, lastNetworkError: '', requests: 0,
+    attempts: 0,        // lookups actually sent
+    answered: 0,        // lookups that came back with something other than a 429
+    rateLimited: 0,     // 429/5xx responses
+    unheard: 0,         // probes given up after MAX_PROBE_ATTEMPTS
+    consecutiveUnheard: 0,
+    networkFailures: 0,
+    lastNetworkError: '',
   };
 }
 
 /**
  * One probe, with pacing and 429 retry.
  *
- * Always returns an observation — a no-match is an observation too, and the
- * adaptive scan needs it to know a region is silent rather than unvisited.
+ * Returns an observation — a no-match is an observation too, and the adaptive
+ * scan needs it to know a region is silent rather than unvisited. The one
+ * exception is a moment we never actually heard because every attempt was
+ * throttled: that comes back flagged `unheard`, and callers must NOT feed it to
+ * the scan as evidence. "Shazam wouldn't answer" and "nothing recognisable is
+ * playing here" look identical in the result shape and mean opposite things —
+ * treating the first as the second tells the bisection a region is silent, and
+ * silence is exactly what it stops probing (MIN_GAP_SILENT_SEC).
  */
 async function probeMoment(state, audioPath, t, signal) {
-  let obs = { t, trackKey: null, matches: [] };
+  const obs = { t, trackKey: null, matches: [] };
+
+  // Decoded once, before queueing for a slot: fingerprinting is local and free,
+  // and a retry re-sends the same signature rather than re-running ffmpeg. A
+  // slot is a scarce, machine-wide resource — don't hold one to decode.
+  let pcm;
+  try {
+    pcm = await decodeSlice(audioPath, t, PROBE_SEC, signal);
+  } catch (_) {
+    return obs;                                         // a bad probe never aborts the scan
+  }
+  if (pcm.length < SAMPLE_RATE) return obs;             // too short to fingerprint
+
+  let throttled = false;
   for (let attempt = 0; attempt < MAX_PROBE_ATTEMPTS; attempt++) {
     if (signal && signal.aborted) throw new Error('Extraction cancelled.');
-    const wait = REQUEST_GAP_MS - (Date.now() - state.lastRequestAt);
-    if (wait > 0) await sleep(wait, signal);
-    if (signal && signal.aborted) throw new Error('Extraction cancelled.');
+    await acquireShazamSlot(signal);                    // machine-wide pacing
 
     let res;
     try {
-      const pcm = await decodeSlice(audioPath, t, PROBE_SEC, signal);
-      if (pcm.length < SAMPLE_RATE) break;              // too short to fingerprint
       res = await lookup(pcm, signal);
     } catch (_) {
-      break;                                            // a bad probe never aborts the scan
+      return obs;
     }
-    state.lastRequestAt = Date.now();
-    state.requests++;
+    state.attempts++;
 
     if (res && res.aborted) throw new Error('Extraction cancelled.');
     if (res && res.rateLimited) {
-      state.consecutiveRateLimits++;
-      if (state.consecutiveRateLimits >= MAX_CONSECUTIVE_RATE_LIMITS) {
-        throw new Error('Shazam is rate-limiting this machine and did not recover. Wait a few minutes and try again.');
-      }
-      await sleep(RATE_LIMIT_BACKOFF_MS * (attempt + 1), signal);
+      // Tell the gate, then simply ask for another slot. The backoff is shared,
+      // so every other job in this process waits it out too — which is the only
+      // way a machine-wide limit ever clears while several jobs are running.
+      state.rateLimited++;
+      throttled = true;
+      noteShazamRateLimited();
       continue;                                         // retry this same moment
     }
-    state.consecutiveRateLimits = 0;
-
     if (res && res.networkError) {
+      // Not an answer: the request never reached the endpoint, so it says
+      // nothing about pacing and must NOT count towards `answered` — the
+      // run-level guard uses `answered === 0` to catch a total outage.
       state.networkFailures++;
       state.lastNetworkError = res.message || '';
-      break;
+      return obs;
     }
-    if (res && res.track) obs = { t, ...res.track, matches: res.matches };
-    break;
+    noteShazamAnswered();
+    state.answered++;
+    state.consecutiveUnheard = 0;
+    if (res && res.track) return { t, ...res.track, matches: res.matches };
+    return obs;                                         // a clean no-match
   }
-  return obs;
+
+  // Every attempt was throttled. That moment is unheard, not fatal — the scan
+  // carries on, and the run-level guard decides what a *whole run* of unheard
+  // probes means.
+  if (throttled) { state.unheard++; state.consecutiveUnheard++; }
+  return { ...obs, unheard: throttled };
 }
 
 async function runtimeOf(audioPath, durationSec) {
@@ -359,9 +396,23 @@ export async function spotCheck(audioPath, { points = 12, durationSec, signal } 
     const raw = Math.round((total * (i + 0.5)) / points);
     const t = Math.max(1, Math.min(total - PROBE_SEC - 1, raw));
     observations.push(await probeMoment(state, audioPath, t, signal));
+    if (state.consecutiveUnheard >= MAX_CONSECUTIVE_UNHEARD) break;   // refused, not paced
   }
-  observations.sort((a, b) => a.t - b.t);
-  return { observations, matchedCount: observations.filter((o) => o.trackKey).length };
+  const heard = observations.filter((o) => !o.unheard).sort((a, b) => a.t - b.t);
+  if (state.unheard) {
+    console.warn(`[SetEngine] Shazam spot check: ${state.unheard} of ${points} probes went unheard (throttled). `
+      + `Gate now at ${shazamGateStatus().gapMs} ms.`);
+  }
+  return {
+    // Only moments we actually heard. Everything downstream — the agreement
+    // score, and the seeds handed to the full scan — must see a throttled probe
+    // as one that never happened.
+    observations: heard,
+    matchedCount: heard.filter((o) => o.trackKey).length,
+    // A spot check that never got an answer proves nothing, so the caller must
+    // not read "no probe named a listed track" as "the tracklist is wrong".
+    answered: state.answered,
+  };
 }
 
 export async function recognize(audioPath, { settings, signal, onProgress, durationSec, seedObservations } = {}) {
@@ -373,12 +424,13 @@ export async function recognize(audioPath, { settings, signal, onProgress, durat
 
   const observations = [];
   const spent = new Set();
+  const unheardAt = new Set();      // spent, but throttled — no observation recorded
   const state = newProbeState();
 
   // Reuse anything the spot check already paid for. Those probes are ordinary
   // observations and the bisection reads them exactly like its own seed grid.
   for (const o of (seedObservations || [])) {
-    if (!o || typeof o.t !== 'number' || spent.has(o.t)) continue;
+    if (!o || typeof o.t !== 'number' || o.unheard || spent.has(o.t)) continue;
     spent.add(o.t);
     observations.push(o);
   }
@@ -387,31 +439,57 @@ export async function recognize(audioPath, { settings, signal, onProgress, durat
   const emit = () => { if (onProgress) onProgress({ done: spent.size, total: maxProbes }); };
   emit();
 
-  const probeAt = async (rawT) => {
-    const t = Math.max(1, Math.min(total - PROBE_SEC - 1, Math.round(rawT)));
-    if (spent.has(t)) return null;
+  // A spent midpoint normally means the scan can make no further progress here
+  // and the caller stops — unchanged. The exception is a midpoint that was spent
+  // on an UNHEARD probe: it recorded no observation, so the gap it was meant to
+  // split is still open and the bisection will keep choosing the same point. One
+  // throttled probe would therefore end the whole scan. In that case only, step
+  // outwards (within a quarter of the gap) for a second we haven't tried.
+  const probeAt = async (rawT, spread = 0) => {
+    const lo = 1;
+    const hi = Math.max(1, total - PROBE_SEC - 1);
+    const centre = Math.max(lo, Math.min(hi, Math.round(rawT)));
+    let t = centre;
+    if (spent.has(t)) {
+      if (!unheardAt.has(t)) return null;
+      const reach = Math.floor(Math.min(spread / 4, 15));
+      let found = null;
+      for (let d = 1; d <= reach && found === null; d++) {
+        for (const cand of [centre - d, centre + d]) {
+          if (cand >= lo && cand <= hi && !spent.has(cand)) { found = cand; break; }
+        }
+      }
+      if (found === null) return null;
+      t = found;
+    }
     spent.add(t);
 
     const obs = await probeMoment(state, audioPath, t, signal);
+    emit();
+    // Throttled: `t` stays spent (so a refusing endpoint can't spin the
+    // bisection forever on the same midpoint) but the moment is not recorded —
+    // the gap stays unproven and the scan will look at a nearby point instead.
+    if (obs.unheard) { unheardAt.add(t); return obs; }
     observations.push(obs);
     observations.sort((a, b) => a.t - b.t);
-    emit();
     return obs;
   };
 
   // ── Seed a coarse grid ──────────────────────────────────────────────
+  const refused = () => state.consecutiveUnheard >= MAX_CONSECUTIVE_UNHEARD;
   for (let t = Math.min(30, total / 2); t < total - 20 && spent.size < maxProbes; t += SEED_STEP_SEC) {
     await probeAt(t);
+    if (refused()) break;
   }
 
   // ── Bisect until coverage is proven or the budget runs out ──────────
-  while (spent.size < maxProbes) {
+  while (spent.size < maxProbes && !refused()) {
     if (signal && signal.aborted) throw new Error('Extraction cancelled.');
     let best = null;
     const consider = (width, mid, floor, weight) => {
       if (width < floor) return;
       const priority = width * weight;
-      if (!best || priority > best.priority) best = { priority, mid };
+      if (!best || priority > best.priority) best = { priority, mid, width };
     };
     for (let i = 0; i < observations.length - 1; i++) {
       const a = observations[i];
@@ -428,14 +506,24 @@ export async function recognize(audioPath, { settings, signal, onProgress, durat
       consider(total - lastT, (lastT + total) / 2, MIN_GAP_CONFUSED_SEC, 1);
     }
     if (!best) break;                                     // fully resolved
-    if (await probeAt(best.mid) === null) break;          // midpoint already spent
+    if (await probeAt(best.mid, best.width) === null) break;   // gap fully spent
   }
 
-  // Every probe failing to even reach Shazam is an outage, not an unrecognisable
+  // Every probe failing to get an answer is an outage, not an unrecognisable
   // set. Say so, instead of handing back an empty tracklist the user would read
-  // as "none of my tracks are known".
-  if (state.requests > 0 && state.networkFailures >= state.requests) {
-    throw new Error(`Couldn't reach Shazam — all ${state.requests} lookups failed${state.lastNetworkError ? ` (${state.lastNetworkError})` : ''}. Check your connection.`);
+  // as "none of my tracks are known". Note this fires only when the run got
+  // NOTHING back across every probe and every retry — ordinary throttling is
+  // absorbed by the gate and costs time, not results.
+  if (refused()) {
+    console.warn(`[SetEngine] Shazam stopped answering: ${state.unheard} probes unheard in a row after `
+      + `${state.rateLimited} rate-limited attempts. Reporting what was heard (${state.answered} answered lookups).`);
+  }
+
+  if (state.attempts > 0 && state.answered === 0) {
+    if (state.rateLimited > state.networkFailures) {
+      throw new Error(`Shazam refused all ${state.attempts} lookups from this network. Nothing was recognized — try again later, or use a set whose uploader published a tracklist.`);
+    }
+    throw new Error(`Couldn't reach Shazam — all ${state.attempts} lookups failed${state.lastNetworkError ? ` (${state.lastNetworkError})` : ''}. Check your connection.`);
   }
 
   const { tracks, plays, dropped } = tracklistFrom(observations, acceptOptionsFor(settings));
@@ -443,7 +531,8 @@ export async function recognize(audioPath, { settings, signal, onProgress, durat
   const matched = observations.filter((o) => o.trackKey).length;
   console.log(`[SetEngine] Shazam: ${observations.length} probes over ${Math.round(total / 60)} min `
     + `(${matched} matched) → ${plays.length} plays → ${tracks.length} track(s)`
-    + `${dropped.length ? `, ${dropped.length} sighting(s) dropped as contradicted` : ''}.`);
+    + `${dropped.length ? `, ${dropped.length} sighting(s) dropped as contradicted` : ''}`
+    + `${state.unheard ? `. ${state.unheard} probe(s) went unheard (throttled)` : ''}.`);
 
   if (onProgress) onProgress({ done: maxProbes, total: maxProbes });
   return { tracks };

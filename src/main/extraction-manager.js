@@ -20,9 +20,14 @@ import { classifyUrl } from './sources.js';
 import { extractSet } from './set-extractor.js';
 
 // How many extractions may scan/download at once. Extra jobs sit in `queued`
-// and start as slots free up. Kept low because each running job drives its own
-// rate-limited recognition scan
-// and YouTube's per-IP bot-check threshold when many sets are fired off at once.
+// and start as slots free up. Kept low because of YouTube's per-IP bot-check
+// threshold when many sets are fired off at once.
+//
+// Note this is NOT what protects Shazam's rate limit — it can't be. Recognition
+// requests are paced machine-wide by shazam/rate-gate.js, so N parallel jobs
+// share one request stream rather than emitting N times as many. Before that
+// existed, three parallel jobs throttled each other into failing (see the
+// comment at the top of shazam/recognize.js).
 const MAX_CONCURRENT_EXTRACTIONS = 3;
 
 export default class ExtractionJobManager {

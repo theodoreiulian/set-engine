@@ -142,7 +142,12 @@ export async function extractSet(url, { ytDlp, settings, signal, onProgress, cac
       });
       seedObservations = spot.observations;
       spotResult = spotCheckAgreement(spot.observations, published.entries);
-      if (spotResult.matched < SPOT_CHECK_MIN_MATCHES) {
+      if (spot.answered === 0) {
+        // Shazam answered nothing at all (throttled or unreachable). That is not
+        // evidence against the tracklist — a spot check that never heard the
+        // audio can't contradict anything, so the list stands unchallenged.
+        console.log(`[SetEngine] spot check could not reach Shazam — trusting the ${published.source} tracklist unchecked.`);
+      } else if (spotResult.matched < SPOT_CHECK_MIN_MATCHES) {
         console.log(`[SetEngine] spot check inconclusive (${spotResult.matched} of ${SPOT_CHECK_POINTS} probes matched) — trusting the ${published.source} tracklist.`);
       } else if (spotResult.fraction < SPOT_CHECK_MIN_AGREEMENT) {
         complete = false;
@@ -156,11 +161,24 @@ export async function extractSet(url, { ytDlp, settings, signal, onProgress, cac
     let entries;
     let usedShazam = false;
     if (!complete && audioPath) {
-      const scanned = (await scanAudio(audioPath, seedObservations))
-        .map((t) => ({ ...t, source: 'shazam' }));
+      // A scan that can't reach Shazam is only fatal when there is nothing
+      // published to fall back on — the same rule the audio download follows.
+      // Losing a real, human-written tracklist because the recognizer was
+      // refused would be the worst possible trade: the published entries are
+      // the best-named ones we have, and supplementing them is a bonus, not a
+      // precondition. Cancellation stays fatal, always.
+      let scannedTracks = null;
+      try {
+        scannedTracks = await scanAudio(audioPath, seedObservations);
+      } catch (err) {
+        if ((signal && signal.aborted) || !published) throw err;
+        console.error(`[SetEngine] could not scan the audio (${err.message}) — keeping the `
+          + `${published.source} tracklist as-is.`);
+      }
+      const scanned = (scannedTracks || []).map((t) => ({ ...t, source: 'shazam' }));
       entries = published ? mergeTracklists(published.entries, scanned) : scanned;
-      usedShazam = true;
-      if (published) {
+      usedShazam = scannedTracks !== null;
+      if (published && usedShazam) {
         console.log(`[SetEngine] supplemented a partial ${published.source} tracklist: `
           + `${published.entries.length} published + ${scanned.length} recognized → ${entries.length} track(s).`);
       }
