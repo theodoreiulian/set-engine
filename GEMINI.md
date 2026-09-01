@@ -46,11 +46,20 @@ Build / run is driven entirely by Electron Forge + the Vite plugin:
 
 - `npm start` — Electron Forge dev: starts the Vite dev server, builds main + preload, launches Electron. Renderer changes hot-reload; **main-process changes need a full restart.**
 - `npm run package` — produce an unpacked app in `out/`
+- `npm run install-app` — macOS only: package, then install the result to `/Applications/SetEngine.app` so it can live in the Dock (`scripts/package-app.sh`). See "Packaging a standalone .app" below
 - `npm run make` — installers per `forge.config.js` (Squirrel/Windows, zip/macOS, deb/rpm/Linux)
 - `npm run publish` — Forge publish targets
 - `npm run lint` — currently a no-op (`echo "No linting configured"`)
 
 There is **no test framework** and no linter. The only mechanical check available is `node --check <file>` for syntax. Pure-logic modules (e.g. `set-maker.js`, `track-match.js`) are written as side-effect-free ESM so they can be exercised from a scratch script.
+
+## Packaging a standalone .app
+
+`npm run install-app` builds the app and installs it to `/Applications/SetEngine.app`, for launching from the Dock instead of a terminal. It is macOS-only (Windows/Linux use `npm run make` and the artefacts in `out/make/`), and it is a convenience wrapper, not a distribution pipeline — the bundle is ad-hoc signed, identifies as `com.github.Electron`, and carries the stock Electron icon, because there is no `.icns` in the repo.
+
+**The .app is a snapshot and never updates itself.** It runs the source as it was when the script last ran; `npm start` still runs the live tree, and the two are wholly independent. They do share `userData` — Electron derives it from `productName` in both modes — so settings and the extraction cache are common, and running both at once is asking for a clobbered settings write.
+
+**The packaged build ships no `node_modules`, and that silently broke Shazam.** The Vite plugin packages only the built bundles and drops dependencies entirely, on the reasonable assumption that Vite inlined everything it could see. `shazamio-core` is the one it cannot see: `shazam/signature.js` loads it through `createRequire` *specifically* so Vite leaves it external, because its loader does `fs.readFileSync(path.join(__dirname, 'shazamio-core_bg.wasm'))` and bundling rewrites `__dirname` to `.vite/build`. External therefore meant not bundled, and no `node_modules` meant not shipped either. The result was a build that launched, downloaded and analyzed perfectly and then threw "Couldn't load the Shazam signature module" at the first probe — **Set Extraction with no audio recognition, in packaged builds only**, invisible under `npm start`. The `packageAfterCopy` hook in `forge.config.js` copies the module in before the asar is sealed (~3 MB; Electron reads the `.wasm` through asar fine), and `scripts/package-app.sh` greps the finished asar for `shazamio-core_bg.wasm` and refuses to install without it. **Any future runtime `require` of a package — anything Vite is deliberately kept away from — needs the same treatment or it will fail the same silent way.**
 
 ## Tech stack & build
 
@@ -317,3 +326,4 @@ The Settings page shows `yt-dlp <version>`, `spotdl <version>`, and `Accelerator
 - **When adding a source:** add a `sources.js` entry + wrapper module + `DownloadManager` wiring (it already dispatches on `item.source`).
 - **When adding IPC:** register in `ipc-handlers.js` **and** expose in `preload.js`; if it's an event, return an unsubscribe fn.
 - **Adding a remote origin** (image/script/font) requires editing the CSP in `index.html`.
+- **A dependency loaded at runtime instead of imported will not be in the packaged app.** The Forge Vite plugin ships the bundles and no `node_modules`, so anything Vite doesn't inline (today: `shazamio-core`, kept external on purpose) has to be copied in by the `packageAfterCopy` hook in `forge.config.js`. Nothing fails at build time and nothing fails under `npm start` — it breaks only in a packaged build, at the moment the module is first used. Test packaging changes with `npm run install-app`, which refuses to install a bundle missing the WASM.

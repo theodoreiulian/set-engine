@@ -9,6 +9,7 @@
     "setup": "bash scripts/setup.sh",
     "start": "electron-forge start",
     "package": "electron-forge package",
+    "install-app": "bash scripts/package-app.sh",
     "make": "electron-forge make",
     "publish": "electron-forge publish",
     "lint": "echo \"No linting configured\""

@@ -1,3 +1,5 @@
+const fs = require('node:fs');
+const path = require('node:path');
 const { FusesPlugin } = require('@electron-forge/plugin-fuses');
 const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 
@@ -6,6 +8,31 @@ module.exports = {
     asar: true,
   },
   rebuildConfig: {},
+  hooks: {
+    // Ship shazamio-core by hand, because nothing else will.
+    //
+    // The Vite plugin packages only the built bundles and drops node_modules
+    // entirely — reasonable, since Vite has already inlined every dependency it
+    // can see. shazamio-core is the one it cannot see: signature.js loads it
+    // through createRequire *precisely* so Vite leaves it external (its loader
+    // does fs.readFileSync(path.join(__dirname, 'shazamio-core_bg.wasm')), which
+    // breaks the moment __dirname becomes .vite/build). The two decisions
+    // combine badly — the module is external, so it isn't bundled, and
+    // node_modules isn't copied, so it isn't shipped either.
+    //
+    // The failure is quiet and only in packaged builds: `npm start` resolves it
+    // from the real node_modules and works, while the .app throws "Couldn't load
+    // the Shazam signature module" on the first probe and Set Extraction loses
+    // audio recognition altogether. Copying it in before the asar is sealed
+    // restores normal resolution (Electron reads the .wasm through asar fine),
+    // costs ~3 MB, and needs no change to signature.js.
+    packageAfterCopy: async (_forgeConfig, buildPath) => {
+      const from = path.resolve(__dirname, 'node_modules', 'shazamio-core');
+      const to = path.join(buildPath, 'node_modules', 'shazamio-core');
+      fs.mkdirSync(path.dirname(to), { recursive: true });
+      fs.cpSync(from, to, { recursive: true });
+    },
+  },
   makers: [
     {
       name: '@electron-forge/maker-squirrel',
