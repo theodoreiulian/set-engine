@@ -258,3 +258,34 @@
   border-style: dashed;
   opacity: 0.75;
 }
+
+/* A recognized row the audio didn't fully corroborate. Louder than the other two
+   badges on purpose — those are provenance, this one is a caveat the user has to
+   act on: the name may be wrong, so listen before you keep it. It reuses the
+   warning colour the queue uses for a degraded-but-not-failed state rather than
+   the error colour, because the row is probably right, just not proven. */
+.extract-row-uncertain {
+  border-color: var(--warning);
+  color: var(--warning);
+  opacity: 0.9;
+}
+
+/* A stretch the scan listened to and could not name, shown in place between the
+   tracks either side of it. Deliberately reads as a break in the list rather
+   than as another entry — it is the absence of a track, and styling it like a
+   row would invite clicking something that isn't there. */
+.extract-gap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 14px;
+  border-left: 2px dashed var(--border, #333);
+  margin: 2px 0 2px 10px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted, #888);
+  cursor: help;
+}
+.extract-gap-range { font-variant-numeric: tabular-nums; opacity: 0.8; }
+.extract-gap-label { opacity: 0.7; }

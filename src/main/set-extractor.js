@@ -46,7 +46,20 @@ const SPOT_CHECK_MIN_AGREEMENT = 0.5;
 // A tracklist this sparse is almost certainly still missing tracks even after
 // everything above. Surfaced to the user rather than hidden — their only clue
 // that anything was wrong used to be a suspiciously short list.
-const SPARSE_MINUTES_PER_TRACK = 12;
+//
+// 5, not 12. A DJ set averaging more than five minutes a track is unusual —
+// three is typical — and at 12 this never fired for the 55-minute set that came
+// back with 9 tracks (6.1 min/track), so a half-empty result was presented as a
+// finished one with no warning at all.
+//
+// It fires often now, and that is correct rather than noisy: measured on two
+// full sets, a large share of what a scan misses is simply NOT IN SHAZAM'S
+// CATALOG and never can be found. On an Anjunadeep show with a published chapter
+// list, 4 of its 9 named tracks were returned by ZERO probes out of 426 — all of
+// them the host's own label promos. On the HÖR set, 15 of 55 minutes produced no
+// repeated name at all. No amount of probing or scoring recovers those, so the
+// only honest thing left is to say the list is short and why.
+const SPARSE_MINUTES_PER_TRACK = 5;
 
 // Collapse all hits for the same track into a single entry, keeping the earliest
 // offset. A DJ holds a track across many scan windows, and recognizers also
@@ -70,6 +83,11 @@ function dedupeTracks(tracks) {
       // Which source named this track. Carried through to the UI so a merged
       // tracklist shows, per row, whether a human wrote it or Shazam heard it.
       source: t.source || 'published',
+      // How well the audio backs a recognized row ('proven' | 'likely' |
+      // 'uncertain'; see shazam/anchor.js). Absent on published rows — a person
+      // named those, so there is nothing to grade. This object is rebuilt field
+      // by field, so anything not copied here never reaches the UI.
+      confidence: t.confidence || null,
     });
   }
   return out;
@@ -160,6 +178,7 @@ export async function extractSet(url, { ytDlp, settings, signal, onProgress, cac
     // ── Scan, and merge with whatever was published ─────────────────────
     let entries;
     let usedShazam = false;
+    let gaps = [];
     if (!complete && audioPath) {
       // A scan that can't reach Shazam is only fatal when there is nothing
       // published to fall back on — the same rule the audio download follows.
@@ -167,17 +186,18 @@ export async function extractSet(url, { ytDlp, settings, signal, onProgress, cac
       // refused would be the worst possible trade: the published entries are
       // the best-named ones we have, and supplementing them is a bonus, not a
       // precondition. Cancellation stays fatal, always.
-      let scannedTracks = null;
+      let scan = null;
       try {
-        scannedTracks = await scanAudio(audioPath, seedObservations);
+        scan = await scanAudio(audioPath, seedObservations);
       } catch (err) {
         if ((signal && signal.aborted) || !published) throw err;
         console.error(`[SetEngine] could not scan the audio (${err.message}) — keeping the `
           + `${published.source} tracklist as-is.`);
       }
-      const scanned = (scannedTracks || []).map((t) => ({ ...t, source: 'shazam' }));
+      const scanned = (scan ? scan.tracks : []).map((t) => ({ ...t, source: 'shazam' }));
+      gaps = scan ? scan.gaps : [];
       entries = published ? mergeTracklists(published.entries, scanned) : scanned;
-      usedShazam = scannedTracks !== null;
+      usedShazam = scan !== null;
       if (published && usedShazam) {
         console.log(`[SetEngine] supplemented a partial ${published.source} tracklist: `
           + `${published.entries.length} published + ${scanned.length} recognized → ${entries.length} track(s).`);
@@ -188,6 +208,14 @@ export async function extractSet(url, { ytDlp, settings, signal, onProgress, cac
     }
 
     const merged = dedupeTracks(entries);
+
+    // A stretch the scan couldn't name is not unidentified if a person named
+    // something in it. Published entries carry no span, so treat an entry as
+    // accounting for the stretch it starts in — the point of reporting a gap is
+    // "nobody could tell you what this was", and here somebody could.
+    gaps = gaps.filter((g) => !merged.some((t) => t.source === 'published'
+      && t.offsetSec >= g.fromSec && t.offsetSec < g.toSec));
+
     emit({ phase: 'merging', percent: 100 });
 
     // `published-<source>` rather than `youtube-<source>`: MixesDB isn't
@@ -203,14 +231,18 @@ export async function extractSet(url, { ytDlp, settings, signal, onProgress, cac
     // failure went unnoticed.
     const minutesPerTrack = merged.length && durationSec
       ? (durationSec / 60) / merged.length : 0;
-    const sparse = minutesPerTrack > SPARSE_MINUTES_PER_TRACK;
+    // An EMPTY tracklist is the sparsest result there is, and it used to be the
+    // one case this missed: with no tracks, minutesPerTrack is 0, 0 is not
+    // greater than the threshold, and a set that produced nothing at all was
+    // presented without so much as a note.
+    const sparse = durationSec > 0 && (!merged.length || minutesPerTrack > SPARSE_MINUTES_PER_TRACK);
     const supplemented = Boolean(published && usedShazam);
     if (sparse) {
       console.log(`[SetEngine] tracklist looks sparse: ${merged.length} track(s) over ${Math.round(durationSec / 60)} min (${minutesPerTrack.toFixed(1)} min/track).`);
     }
 
     // ── Caching ───────────────────────────────────────────────────────────
-    return await cacheAndFinish(merged, { engineLabel, sparse, supplemented });
+    return await cacheAndFinish(merged, { engineLabel, sparse, supplemented, gaps });
   } finally {
     // Only the scratch download/scan dir is cleaned here. The job's cacheDir is
     // owned by ExtractionJobManager and removed when the job is deleted (and the
@@ -333,7 +365,7 @@ export async function extractSet(url, { ytDlp, settings, signal, onProgress, cac
 
   async function scanAudio(audioPath, seedObservations) {
     emit({ phase: 'scanning', percent: 0 });
-    const { tracks } = await recognize(audioPath, {
+    const { tracks, gaps } = await recognize(audioPath, {
       signal,
       durationSec,
       settings,
@@ -344,11 +376,11 @@ export async function extractSet(url, { ytDlp, settings, signal, onProgress, cac
       }),
     });
     if (signal && signal.aborted) throw new Error('Extraction cancelled.');
-    return tracks || [];
+    return { tracks: tracks || [], gaps: gaps || [] };
   }
 
   // ── Cache each track's audio, then report the finished tracklist ──────
-  async function cacheAndFinish(merged, { engineLabel, sparse, supplemented }) {
+  async function cacheAndFinish(merged, { engineLabel, sparse, supplemented, gaps }) {
     emit({ phase: 'caching', percent: 0 });
     await mkdir(cacheDir, { recursive: true });   // this job's private cache dir
 
@@ -459,7 +491,7 @@ export async function extractSet(url, { ytDlp, settings, signal, onProgress, cac
     await Promise.all(promises);
     if (signal && signal.aborted) throw new Error('Extraction cancelled.');
 
-    const payload = { tracks: merged, engine: engineLabel, info: meta, sparse, supplemented };
+    const payload = { tracks: merged, gaps, engine: engineLabel, info: meta, sparse, supplemented };
     emit({ phase: 'done', percent: 100, ...payload });
     return { success: true, ...payload };
   }

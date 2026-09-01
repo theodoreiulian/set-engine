@@ -39,6 +39,39 @@ const SOURCE_LABELS = {
   'published-mixesdb': ['a community tracklist', 'MixesDB'],
 };
 
+// A recognized row the audio didn't fully corroborate. It is shown rather than
+// dropped — dropping these is precisely what made a half-empty tracklist read as
+// a finished one — but it is badged, and DOWNLOAD WHOLE SET leaves it out, so a
+// guess is never written to disk under a confident-looking filename by accident.
+// The per-row download button still works for anyone who listens and agrees.
+const UNCERTAIN_TIP = 'Heard in the audio, but not corroborated well enough to be sure. '
+  + 'Play it before you download it — DOWNLOAD WHOLE SET skips these.';
+
+const isUncertain = (t) => t && t.confidence === 'uncertain';
+
+const clock = (sec) => `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}`;
+
+// A stretch the scan listened to and could not name. Shown in place, between the
+// tracks either side of it, because that position IS the information: it turns
+// "this tracklist looks short" into "these four minutes are unidentifiable", and
+// tells the user exactly where to listen for themselves.
+//
+// The wording splits the two cases apart, because they mean different things to
+// a DJ. Probes that heard nothing are unreleased/unrecognisable audio — a dub, a
+// white label, the DJ's own edit. Probes that heard names none of which held
+// together mean Shazam had answers and never agreed with itself, which is the
+// catalogue guessing rather than the audio being unknowable.
+function gapRowHtml(g) {
+  const mins = Math.max(1, Math.round((g.toSec - g.fromSec) / 60));
+  const why = g.heard === 0
+    ? `Nothing recognisable at any of ${g.probes} probes here — usually an unreleased dub, a white label or the DJ's own edit, which are in no catalogue at all.`
+    : `${g.heard} of ${g.probes} probes here did return a name, but none of them held together as a real play, so none is reported. That is the catalogue guessing, not a track we could confirm.`;
+  return `<div class="extract-gap" title="${escapeHtml(why)}">
+      <span class="extract-gap-range">${clock(g.fromSec)} – ${clock(g.toSec)}</span>
+      <span class="extract-gap-label">${mins} min unidentified</span>
+    </div>`;
+}
+
 // Short form for the per-row badge on a merged tracklist.
 const ROW_SOURCE_LABELS = {
   'published-chapters': 'chapters',
@@ -71,7 +104,19 @@ function sourceNoteHtml(job) {
   // Said out loud rather than left for the user to notice. A short tracklist
   // reading as a finished one is exactly how this failure stayed hidden.
   if (job.sparse) {
-    notes.push('This is still short for a set this long. Unreleased dubs, white labels and bootlegs aren\'t in any source we can reach, so some tracks simply can\'t be named.');
+    notes.push('This is short for a set this long, and it is usually the catalogue rather than the scan: '
+      + 'unreleased dubs, white labels, promos and a DJ\'s own edits are not in Shazam at all, '
+      + 'so no amount of listening can name them. Measured on a set with a published tracklist, '
+      + '4 of its 9 named tracks were never returned by a single one of 426 probes.');
+  }
+  // Named explicitly rather than left to the badges. The badges say which rows;
+  // this says there are some at all, which is what decides whether the user
+  // should listen through the list before trusting it.
+  const unsure = (job.tracks || []).filter(isUncertain).length;
+  if (unsure) {
+    notes.push(`${unsure} track${unsure === 1 ? ' is' : 's are'} marked uncertain — heard in the audio, `
+      + 'but not corroborated well enough to be sure. Play them before you keep them; '
+      + 'DOWNLOAD WHOLE SET leaves them out.');
   }
   return notes.map((n) => `<div class="form-helper" style="margin-top:4px;">${n}</div>`).join('');
 }
@@ -403,12 +448,18 @@ export class ExtractPage {
     if (!this.resultsEl) return;
     this.resultsEl.innerHTML = '';
     const tracks = job.tracks || [];
+    const gaps = job.gaps || [];
 
     if (!tracks.length) {
       if (job.status === 'error') {
         this.resultsEl.innerHTML = `<div class="extract-empty text-danger">${escapeHtml(job.error || 'Extraction failed')}</div>`;
       } else if (job.status === 'done') {
-        this.resultsEl.innerHTML = '<div class="extract-empty text-muted">No tracks could be identified in this set.</div>';
+        // Even with nothing named, say how long was listened to and came back
+        // unidentifiable — "we heard 55 minutes and could not name any of it" is
+        // a result, whereas a bare "no tracks" reads like a malfunction.
+        this.resultsEl.innerHTML = `<div class="extract-empty text-muted">No tracks could be identified in this set.${gaps.length
+          ? ` ${Math.round(gaps.reduce((n, g) => n + (g.toSec - g.fromSec), 0) / 60)} minutes were listened to and matched nothing in Shazam's catalogue — unreleased dubs, white labels and a DJ's own edits aren't in it at all.`
+          : ''}</div>`;
       } else if (job.status === 'cancelled') {
         this.resultsEl.innerHTML = '<div class="extract-empty text-muted">Extraction cancelled.</div>';
       } // running/queued → status bar carries the state; leave results empty
@@ -420,7 +471,9 @@ export class ExtractPage {
     head.innerHTML = `
       <div>
         <div class="card-title">Tracklist</div>
-        <div class="text-muted mt-4">${tracks.length} tracks</div>
+        <div class="text-muted mt-4">${tracks.length} tracks${gaps.length
+          ? ` · ${Math.round(gaps.reduce((n, g) => n + (g.toSec - g.fromSec), 0) / 60)} min unidentified`
+          : ''}</div>
       </div>
       <button class="btn btn-sm" id="extract-dl-all-btn">DOWNLOAD WHOLE SET</button>
     `;
@@ -436,7 +489,19 @@ export class ExtractPage {
 
     const list = document.createElement('div');
     list.className = 'extract-list';
+    // Gaps are placed by time, so each lands between the tracks it actually sits
+    // between. `pending` is consumed in order as the tracklist is walked.
+    const pending = gaps.slice().sort((a, b) => a.fromSec - b.fromSec);
+    const flushGapsBefore = (sec) => {
+      while (pending.length && pending[0].fromSec <= sec) {
+        const g = pending.shift();
+        const el = document.createElement('div');
+        el.innerHTML = gapRowHtml(g);
+        list.appendChild(el.firstElementChild);
+      }
+    };
     tracks.forEach((t, i) => {
+      flushGapsBefore(t.offsetSec);
       const row = document.createElement('div');
       row.className = 'extract-row';
       row.dataset.index = i;
@@ -454,6 +519,8 @@ export class ExtractPage {
         <span class="extract-row-num">${String(i + 1).padStart(2, '0')}</span>
         <span class="extract-row-title">${escapeHtml(label)}${origin
           ? ` <span class="extract-row-src extract-row-origin" title="${escapeHtml(origin.tip)}">${escapeHtml(origin.text)}</span>`
+          : ''}${isUncertain(t)
+          ? ` <span class="extract-row-src extract-row-uncertain" title="${escapeHtml(UNCERTAIN_TIP)}">uncertain</span>`
           : ''}${t.provider && t.provider !== 'youtube'
           // Only flag the non-default source. SoundCloud tops out at 128 kbps, so
           // a track found there is lower quality than one from YouTube Music —
@@ -472,6 +539,7 @@ export class ExtractPage {
       row.querySelector('.extract-dl-btn').addEventListener('click', () => this._downloadTrack(i, t));
       list.appendChild(row);
     });
+    flushGapsBefore(Infinity);          // any stretch after the last named track
     this.resultsEl.appendChild(list);
     this._updateTrackRows();
   }
@@ -639,17 +707,33 @@ export class ExtractPage {
     if (this.dlAllBtn) this.dlAllBtn.disabled = true;
 
     try {
+      // Uncertain rows are deliberately excluded. `download:tracks` stamps the
+      // EXPECTED artist and title onto whatever audio it fetches, so shipping a
+      // row we aren't sure of produces a correctly-labelled wrong file — the
+      // worst outcome this feature has. Send the indices too, so the job's
+      // per-row ✔ state still lines up with the full tracklist.
+      const picked = [];
+      (job.tracks || []).forEach((t, i) => { if (!isUncertain(t)) picked.push({ t, i }); });
+      const held = job.tracks.length - picked.length;
+      if (!picked.length) {
+        showToast('Every track here is uncertain — play them and download the ones you want.', 'warning');
+        return;
+      }
       const res = await window.setengine.downloadTracks({
-        tracks: job.tracks,
+        tracks: picked.map((p) => p.t),
+        indices: picked.map((p) => p.i),
         outputDir: this.folderPath,
         jobId: this.selectedJobId,
       });
       if (res && res.success) {
         const skipped = (res.ids || []).filter((id) => id == null).length;
-        const ok = job.tracks.length - skipped;
+        const ok = picked.length - skipped;
+        const notes = [];
+        if (skipped) notes.push(`${skipped} skipped (no match)`);
+        if (held) notes.push(`${held} uncertain not downloaded`);
         showToast(
-          skipped ? `Downloaded ${ok} tracks · ${skipped} skipped (no match)` : `Downloaded ${ok} tracks`,
-          skipped ? 'warning' : 'success',
+          notes.length ? `Downloaded ${ok} tracks · ${notes.join(' · ')}` : `Downloaded ${ok} tracks`,
+          notes.length ? 'warning' : 'success',
         );
       } else {
         showToast(res ? res.error : 'Download all failed', 'error');

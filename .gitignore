@@ -94,3 +94,8 @@ out/
 
 # OpenCode
 .omo/
+
+# Recognition evaluation harness (scripts/eval): generated bundles, and probe
+# captures — each is megabytes of raw Shazam responses for one specific set.
+scripts/eval/.build/
+scripts/eval/captures/

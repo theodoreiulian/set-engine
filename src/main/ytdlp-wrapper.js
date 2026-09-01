@@ -55,6 +55,18 @@ function translateYtDlpError(code, stderr) {
     return `${label} couldn't be downloaded — the download helper was rejected by the server. Retry in a moment; if it persists, update yt-dlp.`;
   }
 
+  // A 403 on the media URL (as opposed to the metadata fetch, which succeeds) is
+  // what a stale yt-dlp looks like now: it asks for a player client that can no
+  // longer mint the GVS PO token YouTube requires, so the edge hands back a ~10 KB
+  // preview and refuses everything beyond it. This is checked after the aria2c
+  // branch on purpose — an aria2c 403 carries its own stderr shape and its own
+  // retry, and should keep its own message. Left to fall through, this arrives as
+  // the raw "unable to download video data: HTTP Error 403: Forbidden", which
+  // reads like the video is broken and sends people hunting for another link.
+  if (/HTTP Error 403|unable to download video data/i.test(text)) {
+    return 'YouTube refused to serve the audio, which almost always means your yt-dlp is out of date. Update it: `brew upgrade yt-dlp` or `pip install -U yt-dlp`, then retry.';
+  }
+
   // Fall through: strip warnings, surface the actual ERROR: line if there is one
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
   const errorLine = lines.find((l) => /^ERROR:/i.test(l));
@@ -65,10 +77,16 @@ function translateYtDlpError(code, stderr) {
 }
 
 // Minimum yt-dlp version we trust to handle YouTube's current streaming
-// protocol (SABR). Versions older than this almost certainly produce the
-// "Requested format is not available" failure on every YouTube video.
-// Update this constant as new yt-dlp baselines emerge.
-const MIN_RECOMMENDED_YTDLP = '2025.09.05';
+// protocol (SABR, and now GVS PO tokens). Versions older than this fail on
+// every YouTube video, in one of two ways: the older symptom is "Requested
+// format is not available", the newer one is a 403 on the media URL itself.
+// Measured 2026-08-24 on the same two videos: 2026.03.17 and 2026.07.04 both
+// resolved a format fine and were then served only a ~10 KB preview, 403ing on
+// any larger byte range; 2026.08.19 downloaded both in full. The 403 is the
+// nastier symptom because extraction *looks* healthy right up until the bytes
+// are requested, so keep this constant current — it is the only thing that
+// tells the user their binary, not the video, is the problem.
+const MIN_RECOMMENDED_YTDLP = '2026.08.19';
 
 function parseYtdlpVersion(versionStr) {
   if (!versionStr) return null;

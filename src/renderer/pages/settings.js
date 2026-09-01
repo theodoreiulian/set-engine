@@ -66,7 +66,7 @@ export class SettingsPage {
       <div style="margin-top: 16px;">
         <div class="form-helper" style="margin-bottom: 6px;">How much evidence to require (0–100)</div>
         <input type="number" class="input" id="settings-recognizer-confidence" min="0" max="100" step="5" style="max-width: 120px;">
-        <div class="form-helper" style="margin-top: 6px;">SetEngine confirms a track by checking that the audio keeps lining up with the same record as the set plays on. Above 80 it keeps only tracks confirmed that way — the cleanest tracklist, but a briefly-played track can be dropped. Below 30 it also keeps weaker, repeated matches. The default sits between the two.</div>
+        <div class="form-helper" style="margin-top: 6px;">SetEngine confirms a track by checking that the audio keeps lining up with the same record as the set plays on. At the default, tracks it couldn't confirm that way are still listed but marked <em>uncertain</em>, and left out of DOWNLOAD WHOLE SET — play them and download the ones you agree with. Above 80 only confirmed tracks are listed at all: the cleanest tracklist, but a briefly-played track can be dropped. Below 40 it additionally lists tracks heard only once, which is noticeably noisier.</div>
       </div>`
     ));
 

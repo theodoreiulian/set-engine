@@ -557,10 +557,17 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
 
   ipcMain.handle('download:tracks', async (event, opts) => {
     try {
-      const { tracks, outputDir, jobId } = opts || {};
+      const { tracks, outputDir, jobId, indices } = opts || {};
       if (!Array.isArray(tracks) || tracks.length === 0) {
         return { success: false, error: 'No tracks provided' };
       }
+      // The renderer may send a SUBSET of the job's tracklist — DOWNLOAD WHOLE
+      // SET leaves out rows the audio couldn't corroborate — in which case it
+      // also sends each track's index in the full list. Without that mapping the
+      // per-row ✔ state would be recorded against the wrong rows, and the
+      // numbered filenames would renumber the set. Absent `indices`, this is the
+      // whole list and position is its own index.
+      const rowIndex = (i) => (Array.isArray(indices) && Number.isInteger(indices[i]) ? indices[i] : i);
       const ids = [];
       const recordEntries = [];   // { index, id|sentinel } persisted onto the job
       const { copyFile, stat } = await import('node:fs/promises');
@@ -571,7 +578,7 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
 
       for (let i = 0; i < tracks.length; i++) {
         const t = tracks[i] || {};
-        const num = String(i + 1);
+        const num = String(rowIndex(i) + 1);
         const artist = (t.artist || '').trim();
         const title = (t.title || '').trim();
         const query = artist ? artist + ' ' + title : title;
@@ -602,7 +609,7 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
           }
 
           if (copied) {
-            idToPush = 'copied-' + i;
+            idToPush = 'copied-' + rowIndex(i);
           } else {
             // No usable cache file → resolve to a video VERIFIED to be this
             // recording. null = nothing could be verified → skip this track
@@ -629,7 +636,10 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
         // Persist a mapping for every track: a real id, a 'copied-' sentinel, or
         // a 'skipped-' sentinel (null idToPush = no match). Matches the sentinels
         // the renderer uses so navigating off and back keeps each row's ✔/✖.
-        recordEntries.push({ index: i, id: idToPush == null ? 'skipped-' + i : idToPush });
+        recordEntries.push({
+          index: rowIndex(i),
+          id: idToPush == null ? 'skipped-' + rowIndex(i) : idToPush,
+        });
       }
 
       if (extractionManager && jobId) {

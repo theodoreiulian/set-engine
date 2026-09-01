@@ -30,11 +30,16 @@ export function identityKey(artist, title) {
 const norm = (s) => String(s || '').toLowerCase().normalize('NFD')
   .replace(/\p{Diacritic}/gu, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
+// Exported for the evaluation harness (scripts/eval), which scores a recognized
+// tracklist against a known one and must use the SAME notion of "same track"
+// the pipeline uses — otherwise the measurement grades a different question than
+// the code answers.
+//
 // Containment rather than edit distance: the same record is routinely written
 // long by one source and short by the other ("Silver Screen Shower Scene ADULT
 // Remix" vs "Silver Screen"), and containment scores that 1.0 where a symmetric
 // similarity would score it low.
-function titleSimilarity(a, b) {
+export function titleSimilarity(a, b) {
   const A = new Set(norm(cleanTitle(a)).split(' ').filter((w) => w.length > 1));
   const B = new Set(norm(cleanTitle(b)).split(' ').filter((w) => w.length > 1));
   if (!A.size || !B.size) return 0;
@@ -121,6 +126,9 @@ export function mergeTracklists(published, recognized, { nearSec = NEAR_SEC } = 
       album: (r.album || '').trim(),
       offsetSec: at,
       source: 'shazam',
+      // Graded by anchor.js. Published rows carry no grade on purpose: a human
+      // named them, so there is nothing for the audio to corroborate.
+      confidence: r.confidence || null,
     });
   }
 

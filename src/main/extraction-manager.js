@@ -66,6 +66,7 @@ export default class ExtractionJobManager {
       phase: null,             // info | downloading | scanning | merging | caching | done
       percent: 0,
       tracks: [],
+      gaps: [],
       engine: null,
       info: null,
       error: null,
@@ -117,6 +118,10 @@ export default class ExtractionJobManager {
       // Deleted mid-run — nothing to record.
       if (!this.jobs.has(job.id)) return;
       job.tracks = (res && res.tracks) || [];
+      // Stretches the scan listened to and could not name — shown in the
+      // tracklist so a short result reads as "these minutes are unidentifiable"
+      // rather than as a finished list.
+      job.gaps = (res && res.gaps) || [];
       job.engine = (res && res.engine) || null;
       job.info = (res && res.info) || job.info;
       job.sparse = Boolean(res && res.sparse);
