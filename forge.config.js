@@ -6,6 +6,9 @@ const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 module.exports = {
   packagerConfig: {
     asar: true,
+    // No extension: packager picks icon.icns on macOS (and would pick icon.ico
+    // on Windows if one is added). Regenerate with scripts/icon/make-icon.mjs.
+    icon: 'assets/icon/icon',
   },
   rebuildConfig: {},
   hooks: {

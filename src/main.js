@@ -199,6 +199,14 @@ const createWindow = () => {
 };
 
 app.whenReady().then(async () => {
+  // A packaged .app gets its Dock icon from the bundle (packagerConfig.icon).
+  // Under `npm start` the bundle is stock Electron's, so set it by hand —
+  // otherwise the dev build keeps showing the Electron atom.
+  if (process.platform === 'darwin' && !app.isPackaged) {
+    const devIcon = path.join(app.getAppPath(), 'assets', 'icon', 'icon.png');
+    if (fs.existsSync(devIcon)) app.dock?.setIcon(devIcon);
+  }
+
   // Wire the setengine-audio:// handler. The renderer builds URLs of the form
   //   setengine-audio://local/<base64url-encoded absolute path>
   // We encode the path so '/' and Unicode characters survive URL parsing
