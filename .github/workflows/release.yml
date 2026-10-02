@@ -1,0 +1,66 @@
+# Builds the macOS installer and attaches it to a GitHub Release.
+#
+# Push a tag that matches package.json's version to publish:
+#   npm version 1.0.1 && git push --follow-tags
+#
+# The result is one file, SetEngine.dmg, at a stable address:
+#   https://github.com/<owner>/<repo>/releases/latest/download/SetEngine.dmg
+#
+# The build is ad-hoc signed (no Developer ID), so first launch needs the
+# "Open Anyway" step described in the README. Signing and notarization are
+# wired up in forge.config.js but have to be run from a machine that holds the
+# certificate — see "Signing" in the README.
+name: Release (macOS)
+
+on:
+  push:
+    tags: ['v*']
+  # Manual runs build the installer and keep it as a workflow artifact only.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    # Apple Silicon runner; it builds both architectures into one universal app.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Check the tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version="v$(node -p "require('./package.json').version")"
+          if [ "$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json ($version)." >&2
+            exit 1
+          fi
+
+      - run: npm ci
+
+      - name: Build SetEngine.dmg
+        run: npm run dist:mac
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SetEngine-macOS
+          path: out/make/SetEngine.dmg
+          if-no-files-found: error
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" out/make/SetEngine.dmg --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" out/make/SetEngine.dmg \
+              --title "SetEngine $GITHUB_REF_NAME" --generate-notes
+          fi

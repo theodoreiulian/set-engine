@@ -9,6 +9,7 @@ import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { sanitizeFilenameTemplate } from './filename-template.js';
+import { isBundledToolPath, usingBundledTools, updateBundledYtDlp } from './bundled-tools.js';
 
 /**
  * Turn raw yt-dlp stderr into a short, actionable message when we recognize the
@@ -26,7 +27,7 @@ function translateYtDlpError(code, stderr) {
   const text = (stderr || '').trim();
 
   if (/Signature extraction failed|forcing SABR streaming|Requested format is not available|Only images are available/i.test(text)) {
-    return 'YouTube changed their streaming protocol and your yt-dlp can\'t extract audio. Update it: `brew upgrade yt-dlp` or `pip install -U yt-dlp`, then retry.';
+    return 'YouTube changed their streaming protocol and your yt-dlp can\'t extract audio. Update yt-dlp from Settings, then retry.';
   }
 
   // Try to extract the video ID that yt-dlp namespaces its error lines with
@@ -64,7 +65,7 @@ function translateYtDlpError(code, stderr) {
   // the raw "unable to download video data: HTTP Error 403: Forbidden", which
   // reads like the video is broken and sends people hunting for another link.
   if (/HTTP Error 403|unable to download video data/i.test(text)) {
-    return 'YouTube refused to serve the audio, which almost always means your yt-dlp is out of date. Update it: `brew upgrade yt-dlp` or `pip install -U yt-dlp`, then retry.';
+    return 'YouTube refused to serve the audio, which almost always means your yt-dlp is out of date. Update yt-dlp from Settings, then retry.';
   }
 
   // Fall through: strip warnings, surface the actual ERROR: line if there is one
@@ -96,8 +97,8 @@ function parseYtdlpVersion(versionStr) {
 }
 
 /**
- * Wraps the system-installed yt-dlp binary.
- * The user is responsible for installing yt-dlp and ffmpeg on their own system.
+ * Wraps the yt-dlp binary found on PATH: the copy bundled in the macOS
+ * installer build (see bundled-tools.js), otherwise the user's own install.
  */
 export default class YtDlpWrapper {
   constructor() {
@@ -161,7 +162,10 @@ export default class YtDlpWrapper {
    */
   getVersion() {
     return new Promise((resolve) => {
-      execFile('yt-dlp', ['--version'], { timeout: 5_000 }, (error, stdout) => {
+      // Generous on purpose. The first launch of a freshly installed yt-dlp is
+      // slow — macOS scans the bundled build once, measured at ~11 s — and a
+      // timeout here is reported to the user as "yt-dlp Not Found".
+      execFile('yt-dlp', ['--version'], { timeout: 60_000 }, (error, stdout) => {
         if (error) {
           resolve(null);
         } else {
@@ -205,6 +209,9 @@ export default class YtDlpWrapper {
    * @returns {Promise<string>} — stdout from the update command
    */
   update() {
+    // The bundled (installer) build is yt-dlp's onedir layout, which `--update`
+    // refuses; the app downloads and verifies the new release itself.
+    if (usingBundledTools()) return updateBundledYtDlp();
     return new Promise((resolve, reject) => {
       execFile('yt-dlp', ['--update'], { timeout: 60_000 }, (error, stdout, stderr) => {
         if (error) {
@@ -227,7 +234,7 @@ export default class YtDlpWrapper {
 
   /**
    * Inspect the system to figure out how yt-dlp was installed.
-   * Returns one of: 'missing', 'homebrew', 'pipx', 'pip', 'standalone'.
+   * Returns one of: 'missing', 'bundled', 'homebrew', 'pipx', 'pip', 'standalone'.
    * For 'pip' the resolved python interpreter is included.
    * @returns {Promise<{ method: string, path?: string, python?: string }>}
    */
@@ -236,6 +243,12 @@ export default class YtDlpWrapper {
     if (!ytdlp.available) return { method: 'missing' };
 
     const binPath = ytdlp.path;
+
+    // The copy shipped inside the app. Checked first: a machine can have a
+    // Homebrew yt-dlp as well, and `brew upgrade` would update the wrong one.
+    if (isBundledToolPath(binPath)) {
+      return { method: 'bundled', path: binPath };
+    }
 
     // Homebrew is the most authoritative signal on macOS — brew installs yt-dlp
     // as a Python wrapper script, so the shebang check below would otherwise
@@ -274,6 +287,8 @@ export default class YtDlpWrapper {
     switch (info.method) {
       case 'missing':
         throw new Error('yt-dlp is not installed. Install it with `brew install yt-dlp` (or `pip install yt-dlp`), then restart SetEngine.');
+      case 'bundled':
+        return updateBundledYtDlp();
       case 'homebrew':
         return this._runCommand('brew', ['upgrade', 'yt-dlp'], 180_000);
       case 'pipx':

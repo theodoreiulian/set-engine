@@ -1,22 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="bg" gradientUnits="userSpaceOnUse" x1="180" y1="100" x2="844" y2="924">
-      <stop offset="0" stop-color="#a8f04c"/>
-      <stop offset="0.5" stop-color="#2fcf6a"/>
-      <stop offset="1" stop-color="#067f55"/>
+    <linearGradient id="bg" gradientUnits="userSpaceOnUse" x1="0" y1="100" x2="0" y2="924">
+      <stop offset="0" stop-color="#242528"/>
+      <stop offset="1" stop-color="#242528"/>
     </linearGradient>
     <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
       <feGaussianBlur in="SourceAlpha" stdDeviation="10"/>
       <feOffset dy="10"/>
       <feComponentTransfer><feFuncA type="linear" slope="0.3"/></feComponentTransfer>
-      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-    <filter id="lift" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur in="SourceAlpha" stdDeviation="16"/>
-      <feOffset dy="14"/>
-      <feFlood flood-color="#034d25" flood-opacity="0.35"/>
-      <feComposite operator="in" in2="SourceAlpha"/>
-      <feComposite operator="in" in2="SourceAlpha"/>
       <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
   </defs>
@@ -25,15 +16,19 @@
     <path d="M 629.60 100.00 C 732.65 100.00, 784.17 100.00, 823.53 120.05 A 184 184 0 0 1 903.95 200.47 C 924.00 239.83, 924.00 291.35, 924.00 394.40 L 924.00 629.60 C 924.00 732.65, 924.00 784.17, 903.95 823.53 A 184 184 0 0 1 823.53 903.95 C 784.17 924.00, 732.65 924.00, 629.60 924.00 L 394.40 924.00 C 291.35 924.00, 239.83 924.00, 200.47 903.95 A 184 184 0 0 1 120.05 823.53 C 100.00 784.17, 100.00 732.65, 100.00 629.60 L 100.00 394.40 C 100.00 291.35, 100.00 239.83, 120.05 200.47 A 184 184 0 0 1 200.47 120.05 C 239.83 100.00, 291.35 100.00, 394.40 100.00 Z" fill="url(#bg)"/>
   </g>
 
-  <g filter="url(#lift)">
-    <circle cx="512" cy="512" r="330" fill="#fff"/>
-    <circle cx="512" cy="512" r="232" fill="none" stroke="url(#bg)" stroke-width="12"/>
-    <circle cx="512" cy="512" r="106" fill="url(#bg)"/>
-    <circle cx="512" cy="512" r="24" fill="#fff"/>
+  <g fill="none" stroke="#3f9d68">
+    <circle cx="512" cy="512" r="318" stroke-width="24"/>
+    <circle cx="512" cy="512" r="232" stroke-width="8" stroke-opacity="0.5"/>
+    <circle cx="512" cy="512" r="94" stroke-width="24"/>
+    <circle cx="512" cy="512" r="22" fill="#3f9d68" stroke="none"/>
+  </g>
 
-    <path d="M 804 220 L 776 436 L 676 540" fill="none" stroke="url(#bg)" stroke-width="84" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M 804 220 L 776 436 L 676 540" fill="none" stroke="#fff" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/>
-    <circle cx="804" cy="220" r="50" fill="#fff"/>
-    <circle cx="804" cy="220" r="16" fill="url(#bg)"/>
+  <path d="M 804 220 L 776 436 L 676 540" fill="none" stroke="url(#bg)" stroke-width="84" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="804" cy="220" r="50" fill="url(#bg)"/>
+
+  <g fill="none" stroke="#3f9d68" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 797.6 269.6 L 776 436 L 676 540" stroke-width="24"/>
+    <circle cx="804" cy="220" r="38" stroke-width="24"/>
+    <circle cx="804" cy="220" r="12" fill="#3f9d68" stroke="none"/>
   </g>
 </svg>

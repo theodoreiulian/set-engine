@@ -99,3 +99,6 @@ out/
 # captures — each is megabytes of raw Shazam responses for one specific set.
 scripts/eval/.build/
 scripts/eval/captures/
+
+# Tools bundled into the macOS installer (scripts/fetch-tools.mjs)
+vendor/

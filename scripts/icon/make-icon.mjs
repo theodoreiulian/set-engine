@@ -63,34 +63,34 @@ function squircle(cx, cy, half, R = 184, xi = 0.6) {
   return `${path} Z`;
 }
 
-// The mark: one white record under a tonearm, on a flat green field. Every
-// "cut" (label, groove, the gap around the arm) is filled with the background
-// gradient itself, in canvas space, so it reads as a hole rather than a colour.
+// The mark: a record under a tonearm, drawn as flat, matte green outlines on dark grey.
+// The gap where the arm crosses the record is stroked with the background
+// gradient itself, in canvas space, so it reads as a break in the line rather
+// than as another colour.
 const REC = { x: C, y: C, r: 330 };
 const PIVOT = { x: 804, y: 220 };
-const ARM = `M ${PIVOT.x} ${PIVOT.y} L 776 436 L 676 540`;
+const ELBOW = { x: 776, y: 436 };
+const ARM = `M ${PIVOT.x} ${PIVOT.y} L ${ELBOW.x} ${ELBOW.y} L 676 540`;
+// The visible arm starts at the pivot ring's edge, not its centre, so the ring
+// stays an open circle.
+const toElbow = Math.atan2(ELBOW.y - PIVOT.y, ELBOW.x - PIVOT.x);
+const ARM_LINE = `M ${(PIVOT.x + 50 * Math.cos(toElbow)).toFixed(1)} ${(PIVOT.y + 50 * Math.sin(toElbow)).toFixed(1)}` +
+  ` L ${ELBOW.x} ${ELBOW.y} L 676 540`;
+const LINE = 24; // main stroke weight
+const INK = '#3f9d68'; // one flat, muted green — no gradient, no glow
 
 const body = squircle(C, C, HALF);
 
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="bg" gradientUnits="userSpaceOnUse" x1="180" y1="100" x2="844" y2="924">
-      <stop offset="0" stop-color="#a8f04c"/>
-      <stop offset="0.5" stop-color="#2fcf6a"/>
-      <stop offset="1" stop-color="#067f55"/>
+    <linearGradient id="bg" gradientUnits="userSpaceOnUse" x1="0" y1="100" x2="0" y2="924">
+      <stop offset="0" stop-color="#242528"/>
+      <stop offset="1" stop-color="#242528"/>
     </linearGradient>
     <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
       <feGaussianBlur in="SourceAlpha" stdDeviation="10"/>
       <feOffset dy="10"/>
       <feComponentTransfer><feFuncA type="linear" slope="0.3"/></feComponentTransfer>
-      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-    <filter id="lift" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur in="SourceAlpha" stdDeviation="16"/>
-      <feOffset dy="14"/>
-      <feFlood flood-color="#034d25" flood-opacity="0.35"/>
-      <feComposite operator="in" in2="SourceAlpha"/>
-      <feComposite operator="in" in2="SourceAlpha"/>
       <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
   </defs>
@@ -99,16 +99,20 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" 
     <path d="${body}" fill="url(#bg)"/>
   </g>
 
-  <g filter="url(#lift)">
-    <circle cx="${REC.x}" cy="${REC.y}" r="${REC.r}" fill="#fff"/>
-    <circle cx="${REC.x}" cy="${REC.y}" r="${REC.r - 98}" fill="none" stroke="url(#bg)" stroke-width="12"/>
-    <circle cx="${REC.x}" cy="${REC.y}" r="106" fill="url(#bg)"/>
-    <circle cx="${REC.x}" cy="${REC.y}" r="24" fill="#fff"/>
+  <g fill="none" stroke="${INK}">
+    <circle cx="${REC.x}" cy="${REC.y}" r="${REC.r - LINE / 2}" stroke-width="${LINE}"/>
+    <circle cx="${REC.x}" cy="${REC.y}" r="${REC.r - 98}" stroke-width="8" stroke-opacity="0.5"/>
+    <circle cx="${REC.x}" cy="${REC.y}" r="${106 - LINE / 2}" stroke-width="${LINE}"/>
+    <circle cx="${REC.x}" cy="${REC.y}" r="22" fill="${INK}" stroke="none"/>
+  </g>
 
-    <path d="${ARM}" fill="none" stroke="url(#bg)" stroke-width="84" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="${ARM}" fill="none" stroke="#fff" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/>
-    <circle cx="${PIVOT.x}" cy="${PIVOT.y}" r="50" fill="#fff"/>
-    <circle cx="${PIVOT.x}" cy="${PIVOT.y}" r="16" fill="url(#bg)"/>
+  <path d="${ARM}" fill="none" stroke="url(#bg)" stroke-width="84" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="${PIVOT.x}" cy="${PIVOT.y}" r="50" fill="url(#bg)"/>
+
+  <g fill="none" stroke="${INK}" stroke-linecap="round" stroke-linejoin="round">
+    <path d="${ARM_LINE}" stroke-width="${LINE}"/>
+    <circle cx="${PIVOT.x}" cy="${PIVOT.y}" r="${50 - LINE / 2}" stroke-width="${LINE}"/>
+    <circle cx="${PIVOT.x}" cy="${PIVOT.y}" r="12" fill="${INK}" stroke="none"/>
   </g>
 </svg>
 `;

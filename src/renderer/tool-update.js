@@ -39,7 +39,9 @@ export async function runToolUpdateFlow({ label, invoke, manualInstall = [] }) {
       : '';
     await showModal(`${label} Updated`, `${versionLine}${output}`, ['OK']);
   } else {
-    const manual = manualInstall.length
+    // The copy bundled in the app is updated by the app; package-manager
+    // commands would update a different yt-dlp and change nothing here.
+    const manual = manualInstall.length && !(result && result.method === 'bundled')
       ? `<p>You can try updating manually:</p><ul>${manualInstall.map((l) => `<li><code>${escapeHtml(l)}</code></li>`).join('')}</ul>`
       : '';
     await showModal(

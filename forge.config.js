@@ -2,6 +2,21 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { FusesPlugin } = require('@electron-forge/plugin-fuses');
 const { FuseV1Options, FuseVersion } = require('@electron/fuses');
+const { execFileSync } = require('node:child_process');
+
+// The tools the macOS installer ships (yt-dlp, ffmpeg, ffprobe, QuickJS),
+// assembled by scripts/fetch-tools.mjs. Optional on purpose: without the
+// directory `npm run package` still works and the app uses whatever is on PATH,
+// which is what a contributor who already has the tools installed wants.
+const BUNDLED_TOOLS = path.resolve(__dirname, 'vendor', 'darwin', 'bin');
+const bundleTools = process.platform === 'darwin' && fs.existsSync(path.join(BUNDLED_TOOLS, 'versions.json'));
+
+// Developer ID signing + notarization switch on when the credentials are in the
+// environment (see the README's "Signing" section) and are otherwise skipped,
+// leaving an ad-hoc signed build. NOT exercised yet — there is no Developer ID
+// certificate on the machine this was written on.
+const SIGN_IDENTITY = process.env.APPLE_SIGNING_IDENTITY;
+const notarize = SIGN_IDENTITY && process.env.APPLE_ID && process.env.APPLE_APP_PASSWORD && process.env.APPLE_TEAM_ID;
 
 module.exports = {
   packagerConfig: {
@@ -9,9 +24,50 @@ module.exports = {
     // No extension: packager picks icon.icns on macOS (and would pick icon.ico
     // on Windows if one is added). Regenerate with scripts/icon/make-icon.mjs.
     icon: 'assets/icon/icon',
+    appBundleId: 'com.theodoreiulian.setengine',
+    appCategoryType: 'public.app-category.music',
+    appCopyright: `Copyright © ${new Date().getFullYear()} theodoreiulian`,
+    // Lands in Contents/Resources/bin. In a universal build both architectures
+    // get the same files; @electron/universal sees they are already universal
+    // Mach-Os and leaves them alone.
+    ...(bundleTools ? { extraResource: [BUNDLED_TOOLS] } : {}),
+    ...(SIGN_IDENTITY ? {
+      osxSign: {
+        identity: SIGN_IDENTITY,
+        optionsForFile: () => ({
+          hardenedRuntime: true,
+          entitlements: path.resolve(__dirname, 'build', 'entitlements.mac.plist'),
+        }),
+      },
+    } : {}),
+    ...(notarize ? {
+      osxNotarize: {
+        appleId: process.env.APPLE_ID,
+        appleIdPassword: process.env.APPLE_APP_PASSWORD,
+        teamId: process.env.APPLE_TEAM_ID,
+      },
+    } : {}),
   },
   rebuildConfig: {},
   hooks: {
+    // Seal the finished macOS bundle with one ad-hoc signature.
+    //
+    // Flipping fuses rewrites the Electron binary and so invalidates its
+    // signature, and @electron/universal lipo-merges the two architectures
+    // without signing the result. An arm64 Mac refuses to launch code with no
+    // valid signature at all, so this is what makes the build runnable. (The
+    // fuses plugin's own re-sign is switched off below — see there.)
+    // Skipped when a real identity is configured (osxSign has already run).
+    postPackage: async (_forgeConfig, { platform, outputPaths }) => {
+      if (platform !== 'darwin' || SIGN_IDENTITY) return;
+      for (const dir of outputPaths) {
+        for (const name of fs.readdirSync(dir).filter((n) => n.endsWith('.app'))) {
+          const app = path.join(dir, name);
+          execFileSync('codesign', ['--force', '--deep', '--sign', '-', app], { stdio: 'inherit' });
+          execFileSync('codesign', ['--verify', '--deep', '--strict', app], { stdio: 'inherit' });
+        }
+      }
+    },
     // Ship shazamio-core by hand, because nothing else will.
     //
     // The Vite plugin packages only the built bundles and drops node_modules
@@ -85,6 +141,12 @@ module.exports = {
     // at package time, before code signing the application
     new FusesPlugin({
       version: FuseVersion.V1,
+      // The plugin re-signs ad hoc after flipping fuses, but only for arm64. In
+      // a universal build that leaves _CodeSignature files in one half and not
+      // the other, and @electron/universal refuses to merge them ("the number of
+      // mach-o files is not the same"). The postPackage hook signs the finished
+      // bundle instead, for every macOS architecture.
+      resetAdHocDarwinSignature: false,
       [FuseV1Options.RunAsNode]: false,
       [FuseV1Options.EnableCookieEncryption]: true,
       [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,

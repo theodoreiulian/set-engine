@@ -17,7 +17,8 @@ See the [README](README.md) for system dependency details.
 ```
 npm start         # dev build with hot-reload for renderer
 npm run package   # produce an unpacked app in out/
-npm run make      # produce platform installers
+npm run make      # produce platform installers (Windows / Linux)
+npm run dist:mac  # produce the macOS installer, out/make/SetEngine.dmg
 ```
 
 - Renderer changes hot-reload automatically.
