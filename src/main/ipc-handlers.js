@@ -204,8 +204,10 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
   });
 
   ipcMain.handle('ytdlp:update', async () => {
+    let method;
     try {
       const info = await ytDlp.detectInstallMethod();
+      method = info.method;
       const output = await ytDlp.runAutomaticUpdate();
       const health = await ytDlp.getHealth();
       return {
@@ -217,6 +219,7 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
     } catch (err) {
       return {
         success: false,
+        method,
         error: err.message,
       };
     }

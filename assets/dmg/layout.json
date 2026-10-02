@@ -1,0 +1,23 @@
+{
+  "window": {
+    "width": 660,
+    "height": 420
+  },
+  "iconSize": 128,
+  "textSize": 12,
+  "app": {
+    "x": 170,
+    "y": 180
+  },
+  "applications": {
+    "x": 490,
+    "y": 180
+  },
+  "plate": {
+    "width": 136,
+    "height": 24,
+    "offsetY": 82
+  },
+  "titleBar": 28,
+  "contentHeight": 396
+}

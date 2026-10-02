@@ -40,6 +40,12 @@ if pgrep -f "$DEST/SetEngine.app/Contents/MacOS/SetEngine" >/dev/null 2>&1; then
   exit 1
 fi
 
+# Bundle yt-dlp / ffmpeg / ffprobe / QuickJS so the installed app stands on its
+# own, exactly like the downloadable installer. Cached in vendor/ after the first
+# run (which downloads ~150 MB); forge.config.js picks the directory up itself.
+echo "==> Preparing bundled tools"
+node scripts/fetch-tools.mjs
+
 echo "==> Packaging the current state of $REPO_ROOT"
 npm run package
 
@@ -61,6 +67,14 @@ if ! grep -qa 'shazamio-core_bg.wasm' "$APP_SRC/Contents/Resources/app.asar"; th
   echo "shazamio-core is missing from the bundle — Set Extraction would lose audio" >&2
   echo "recognition in this build. Check the packageAfterCopy hook in" >&2
   echo "forge.config.js. Nothing installed." >&2
+  exit 1
+fi
+
+# Same idea for the tools: without them the app silently depends on whatever
+# happens to be on this machine's PATH.
+if [[ ! -x "$APP_SRC/Contents/Resources/bin/yt-dlp/yt-dlp" ]]; then
+  echo "The bundled tools are missing from the build — check scripts/fetch-tools.mjs" >&2
+  echo "and the extraResource entry in forge.config.js. Nothing installed." >&2
   exit 1
 fi
 

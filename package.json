@@ -2,7 +2,7 @@
   "name": "setengine",
   "productName": "SetEngine",
   "version": "1.0.0",
-  "description": "YouTube Music downloader for DJs",
+  "description": "A desktop toolkit for DJs: download tracks, extract set tracklists, analyze BPM and key, and build setlists",
   "main": ".vite/build/main.js",
   "private": true,
   "scripts": {
@@ -10,6 +10,8 @@
     "start": "electron-forge start",
     "package": "electron-forge package",
     "install-app": "bash scripts/package-app.sh",
+    "fetch-tools": "node scripts/fetch-tools.mjs",
+    "dist:mac": "node scripts/fetch-tools.mjs && electron-forge package --platform=darwin --arch=universal && node scripts/make-dmg.mjs",
     "make": "electron-forge make",
     "publish": "electron-forge publish",
     "lint": "echo \"No linting configured\""

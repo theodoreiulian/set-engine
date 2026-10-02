@@ -1,4 +1,4 @@
-import { app, BrowserWindow, protocol } from 'electron';
+import { app, BrowserWindow, protocol, net } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { stat as fsStat } from 'node:fs/promises';
@@ -12,6 +12,7 @@ import ExtractionJobManager from './main/extraction-manager.js';
 import { registerIpcHandlers } from './main/ipc-handlers.js';
 import { handleStreamRequest } from './main/stream-resolver.js';
 import { isUnderSessionRoot } from './main/session-roots.js';
+import { initBundledTools, usingBundledTools } from './main/bundled-tools.js';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -103,6 +104,25 @@ if (process.platform !== 'win32') {
   }
 }
 
+// The macOS installer build ships its own yt-dlp / ffmpeg / ffprobe / QuickJS in
+// Contents/Resources/bin. They go ahead of everything above, so a machine with
+// nothing installed works, and one with an old Homebrew yt-dlp isn't held back
+// by it. A no-op under `npm start` and on Windows/Linux (nothing is bundled).
+if (app.isPackaged) {
+  try {
+    const tools = initBundledTools({
+      resourcesPath: process.resourcesPath,
+      userDataPath: app.getPath('userData'),
+      // Resolved lazily: net.fetch is only usable once the app is ready, and
+      // nothing fetches before then.
+      fetch: (...args) => net.fetch(...args),
+    });
+    if (tools) console.log(`[SetEngine] Using bundled tools (yt-dlp ${tools.versions['yt-dlp']}, ffmpeg ${tools.versions.ffmpeg}).`);
+  } catch (err) {
+    console.warn('[SetEngine] Bundled tools unavailable, falling back to PATH:', err.message);
+  }
+}
+
 let mainWindow;
 let ytDlp, spotdl, downloadManager, settingsManager, extractionManager;
 
@@ -189,7 +209,11 @@ const createWindow = () => {
   // Auto-update yt-dlp at boot. Always on — YouTube's SABR changes break older
   // builds, so a stale yt-dlp means every download fails. Managed installs
   // (Homebrew/pipx) are skipped automatically below.
-  ytDlp.update().catch(err => {
+  // The bundled build can't use `yt-dlp -U`; update() routes it to the app's
+  // own updater instead.
+  ytDlp.update().then((msg) => {
+    if (usingBundledTools()) console.log(`[SetEngine] ${msg}`);
+  }).catch(err => {
     if (err.managedInstall) {
       console.log('yt-dlp is managed by an external package manager; skipping auto-update.');
     } else {

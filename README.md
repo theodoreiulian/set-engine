@@ -4,7 +4,7 @@ A desktop toolkit for DJs. Download tracks, find out what's playing in a set, an
 
 Paste a link to a song, playlist, or album from YouTube, YouTube Music, or Spotify and the download starts. Beyond downloading, SetEngine fingerprints a recorded DJ set to recover its tracklist, detects BPM and musical key offline, surfaces harmonically compatible tracks for mixing, and sequences setlists by Camelot key compatibility.
 
-It uses [yt-dlp](https://github.com/yt-dlp/yt-dlp) and, for Spotify, [spotdl](https://github.com/spotDL/spotify-downloader) under the hood. You install those once during setup.
+It uses [yt-dlp](https://github.com/yt-dlp/yt-dlp) and, for Spotify, [spotdl](https://github.com/spotDL/spotify-downloader) under the hood. The macOS app comes with everything it needs built in; on Windows and Linux you install the tools once during setup.
 
 **macOS · Windows · Linux**
 
@@ -29,7 +29,29 @@ SetEngine has four areas:
 - **Match Maker.** Pick a track and see what mixes well in key, grouped by how close the keys sit on the Camelot wheel and filtered by how far apart the BPMs can be.
 - **Set Maker.** Build setlists where every transition stays in key, star-rate your tracks, and import or export playlist files.
 
-## Quick Start
+## Install on macOS
+
+**[Download SetEngine.dmg](https://github.com/theodoreiulian/set-engine/releases/latest/download/SetEngine.dmg)**, open it, and drag **SetEngine** onto **Applications**. That's the whole install.
+
+- Works on macOS 12 (Monterey) and later, on both Apple Silicon and Intel Macs. It is one download for both.
+- Nothing else to install. yt-dlp, ffmpeg and a small JavaScript runtime are inside the app, and SetEngine keeps its yt-dlp up to date by itself.
+- Spotify links are the one exception: they need [spotdl](https://github.com/spotDL/spotify-downloader), which the app can't include. SetEngine tells you how to add it the first time you paste a Spotify link. Everything else works without it.
+
+### The first time you open it
+
+SetEngine isn't signed with a paid Apple developer certificate, so macOS won't open it on a plain double-click the first time. You only do this once:
+
+1. Double-click SetEngine. macOS says it could not verify the app. Click **Done**.
+2. Open **System Settings → Privacy & Security** and scroll down to the message about SetEngine.
+3. Click **Open Anyway**, then confirm.
+
+On macOS 12–14 you can instead right-click the app and choose **Open**. After that it opens normally.
+
+### Updating
+
+Download the new `SetEngine.dmg` and drag it onto Applications again, replacing the old copy. Your settings are kept.
+
+## Run from source (Windows, Linux, or development)
 
 ```bash
 # macOS / Linux
@@ -55,6 +77,38 @@ Missing tools? The setup script prints the exact install commands for your platf
 ```bash
 npm start
 ```
+
+## Building the macOS installer
+
+```bash
+npm run dist:mac
+```
+
+This produces `out/make/SetEngine.dmg`, the same file the releases page serves. It runs three steps: `scripts/fetch-tools.mjs` downloads and checksums the tools that ship inside the app (and compiles QuickJS), Electron Forge builds one universal app for Apple Silicon and Intel, and `scripts/make-dmg.mjs` wraps it in a disk image with the styled install window. It needs macOS with the Xcode Command Line Tools and `python3`. The first run downloads about 150 MB of tools and sets up [dmgbuild](https://github.com/dmgbuild/dmgbuild); later runs reuse both from `vendor/`.
+
+The install window's artwork lives in `assets/dmg/`. To change it, edit `scripts/icon/make-dmg-background.mjs` (or the positions in `assets/dmg/layout.json`) and run `node scripts/icon/make-dmg-background.mjs`.
+
+To publish a release, push a tag that matches the version in `package.json`. The workflow in `.github/workflows/release.yml` builds the installer and attaches it to a GitHub Release:
+
+```bash
+npm version 1.0.1
+git push --follow-tags
+```
+
+`npm run install-app` is the shortcut for your own machine: it builds for your Mac's architecture only and copies the app straight into `/Applications`.
+
+### Signing
+
+Without an Apple Developer ID the build is ad-hoc signed, which is why first launch needs the "Open Anyway" step above. With a Developer ID Application certificate in your keychain, set these before `npm run dist:mac` and the app is signed with the hardened runtime and notarized:
+
+```bash
+export APPLE_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+export APPLE_ID="you@example.com"
+export APPLE_APP_PASSWORD="app-specific-password"
+export APPLE_TEAM_ID="TEAMID"
+```
+
+This path is configured in `forge.config.js` but **has not been run yet**, because it needs a paid Apple Developer account. Expect to adjust it the first time. The disk image itself then needs notarizing and stapling too (`xcrun notarytool submit out/make/SetEngine.dmg --wait`, then `xcrun stapler staple out/make/SetEngine.dmg`).
 
 ## Usage
 
