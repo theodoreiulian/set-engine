@@ -155,6 +155,10 @@ Key modules:
 
 See [CLAUDE.md](CLAUDE.md) for detailed architecture notes.
 
+## Website
+
+The project's landing page lives in `site/` as plain HTML, CSS and JavaScript with no build step. Preview it with `python3 -m http.server --directory site`, and host the folder as-is on any static host.
+
 ## Contributing
 
 Pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
