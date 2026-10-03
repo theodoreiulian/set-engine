@@ -92,7 +92,8 @@ contextBridge.exposeInMainWorld('setengine', {
   },
 
   // ── URL Classification ────────────────────────────────────────────
-  // Identify a pasted link's source (youtube-music | spotify) and shape
+  // Identify a pasted link's source (youtube-music | spotify | soundcloud |
+  // deezer | tidal — share-sheet short links are followed first) and shape
   // (track | playlist) so the Download page can validate before queueing.
   classifyURL: (url) => ipcRenderer.invoke('url:classify', url),
 

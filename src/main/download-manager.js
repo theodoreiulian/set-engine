@@ -1,7 +1,7 @@
 import pLimit from 'p-limit';
 import crypto from 'node:crypto';
 import path from 'node:path';
-import { classifyUrl } from './sources.js';
+import { classifyUrl, getSource } from './sources.js';
 
 const TERMINAL_STATUSES = new Set(['complete', 'error', 'cancelled']);
 
@@ -15,7 +15,7 @@ const MAX_CONCURRENT_DOWNLOADS = 5;
 
 /**
  * Decide if a URL should be downloaded as a playlist. Defers to the source
- * registry's URL classifier so YouTube and Spotify share one entry point.
+ * registry's URL classifier so every source shares one entry point.
  * Watch pages are songs even when the URL carries a `list=` parameter — that
  * list is usually the auto-generated mix/radio (RDAMVM…) which yt-dlp can't
  * enumerate and produces an empty playlist.
@@ -47,11 +47,32 @@ export function normalizeWatchUrl(url) {
   }
 }
 
+/**
+ * A readable stand-in for a playlist entry that came back without a title.
+ * SoundCloud's flat listing does that — measured, every entry of a set carried
+ * a URL and an id and nothing else — and most of its URLs end in the track's
+ * slug (…/forss/city-ports), which beats eleven rows of "Unknown Track". It is
+ * only a placeholder: the real title is fetched when the track's turn comes
+ * (see `_needsTitle`), which also covers the entries whose URL is a bare
+ * api.soundcloud.com/tracks/<id>.
+ */
+function titleFromUrl(url) {
+  if (!url || !/soundcloud\.com\//i.test(url)) return '';
+  try {
+    const slug = new URL(url).pathname.split('/').filter(Boolean).pop() || '';
+    if (/^\d+$/.test(slug)) return '';
+    return decodeURIComponent(slug).replace(/[-_]+/g, ' ').trim();
+  } catch {
+    return '';
+  }
+}
+
 export default class DownloadManager {
-  constructor(mainWindow, ytDlpWrapper, spotdlWrapper) {
+  constructor(mainWindow, ytDlpWrapper, spotdlWrapper, catalogWrapper) {
     this.mainWindow = mainWindow;
     this.ytDlp = ytDlpWrapper;
     this.spotdl = spotdlWrapper;
+    this.catalog = catalogWrapper;
     this.queue = new Map();
     this.limit = pLimit(MAX_CONCURRENT_DOWNLOADS);
     this.outputDir = '';
@@ -59,10 +80,13 @@ export default class DownloadManager {
     this.filenameTemplate = '%(title)s';
   }
 
-  // Pick the engine matching the item's source. Falls back to yt-dlp so legacy
-  // queue items without a source field keep working.
+  // Pick the engine matching the item's source (see `downloader` in
+  // sources.js). Falls back to yt-dlp so legacy queue items without a source
+  // field keep working.
   _wrapperFor(source) {
-    if (source === 'spotify') return this.spotdl;
+    const engine = (getSource(source) || {}).downloader;
+    if (engine === 'spotdl') return this.spotdl;
+    if (engine === 'match' && this.catalog) return this.catalog;
     return this.ytDlp;
   }
 
@@ -83,7 +107,8 @@ export default class DownloadManager {
     const classification = classifyUrl(url) || { source: 'youtube-music', kind: isPlaylistUrl(url) ? 'playlist' : 'track' };
     const source = opts.source || classification.source;
     const isPlaylist = opts.source ? false : classification.kind === 'playlist';
-    // Only YouTube /watch URLs need the list= strip; Spotify URLs pass through.
+    // Only YouTube /watch URLs need the list= strip; every other source's URL
+    // passes through untouched.
     const normalizedUrl = source === 'youtube-music' && !isPlaylist ? normalizeWatchUrl(url) : url;
 
     const item = {
@@ -137,8 +162,8 @@ export default class DownloadManager {
       const wrapper = this._wrapperFor(item.source);
       if (!item._skipInfo) {
         try {
-          // YT and Spotify wrappers both expose getVideoInfo / getTrackInfo with a
-          // { title } shape — call whichever exists.
+          // Every wrapper exposes getVideoInfo or getTrackInfo with a { title }
+          // shape — call whichever exists.
           const info = wrapper.getVideoInfo
             ? await wrapper.getVideoInfo(item.url, cookiePath)
             : await wrapper.getTrackInfo(item.url, cookiePath);
@@ -179,7 +204,7 @@ export default class DownloadManager {
       id: crypto.randomUUID(),
       parentId: item.id,
       url: fallbackUrl(entry),
-      title: entry.title || 'Unknown Track',
+      title: entry.title || titleFromUrl(entry.url) || 'Unknown Track',
       type: 'song',
       source: item.source,
       status: 'queued',
@@ -187,6 +212,7 @@ export default class DownloadManager {
       speed: '',
       eta: '',
       error: null,
+      _needsTitle: !entry.title,
     }));
 
     item.status = 'downloading';
@@ -242,6 +268,22 @@ export default class DownloadManager {
       else this._broadcast();
 
       const wrapper = this._wrapperFor(item.source);
+
+      // A playlist entry that was listed without a title gets its real one now,
+      // alongside the download rather than ahead of it — fetching them all up
+      // front would hold a long playlist at "Fetching info…" for minutes.
+      if (item._needsTitle && wrapper.getVideoInfo) {
+        item._needsTitle = false;
+        wrapper.getVideoInfo(item.url, cookiePath, { timeoutMs: 30000 })
+          .then((info) => {
+            if (info && info.title) {
+              item.title = info.title;
+              this._broadcast();
+            }
+          })
+          .catch(() => { /* the placeholder stays */ });
+      }
+
       const dl = wrapper.download(item.url, item._outputDir || this.outputDir, {
         cookiePath,
         bitrate: this.bitrate,
@@ -257,6 +299,12 @@ export default class DownloadManager {
       });
 
       dl.on('error', (err) => {
+        // Cancelling kills the process, which reports itself as a failure. The
+        // user's cancel is the truth; don't let it be overwritten as an error.
+        if (item.status === 'cancelled') {
+          resolve();
+          return;
+        }
         item.status = 'error';
         item.error = err.message;
         this._emitError(item);
@@ -438,7 +486,7 @@ export default class DownloadManager {
     const { _cancel, _skipInfo, _outputDir, _filenameTemplate, ...cleanItem } = item;
     if (cleanItem.children) {
       cleanItem.children = cleanItem.children.map((c) => {
-        const { _cancel: childCancel, ...cleanChild } = c;
+        const { _cancel: childCancel, _needsTitle, ...cleanChild } = c;
         return cleanChild;
       });
     }
