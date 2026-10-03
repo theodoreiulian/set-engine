@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SetEngine: free, open source tools for DJs</title>
+  <meta name="description" content="SetEngine is a free, open source Mac app for DJs. It downloads music from YouTube and Spotify links, works out the tracklist of a recorded DJ set, detects BPM and key, and builds setlists that mix in key.">
+  <meta name="theme-color" content="#0f1011">
+  <meta property="og:title" content="SetEngine: free, open source tools for DJs">
+  <meta property="og:description" content="A free, open source Mac app that downloads tracks, finds the tracklist of a DJ set, and builds setlists that mix in key.">
+  <meta property="og:image" content="assets/icon.png">
+  <meta property="og:type" content="website">
+  <link rel="icon" type="image/png" href="assets/icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800;900&family=Instrument+Sans:wght@400;500;600&family=Martian+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script>document.documentElement.classList.replace('no-js', 'js');</script>
+</head>
+<body>
+<a class="skip" href="#features">Skip to features</a>
+
+<header class="nav" id="nav">
+  <a class="brand" href="#top" aria-label="SetEngine, back to top">
+    <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+      <circle cx="18" cy="21" r="13" />
+      <circle cx="18" cy="21" r="4" />
+      <path d="M33 6.5 31.6 17l-5 5.2" />
+      <circle cx="33" cy="5" r="2.2" />
+    </svg>
+    <span>SetEngine</span>
+  </a>
+  <nav class="nav-links" aria-label="Sections">
+    <a href="#features">Features</a>
+    <a href="#open-source">Open source</a>
+    <a href="#install">Install</a>
+    <a href="https://github.com/theodoreiulian/set-engine" rel="noopener">GitHub</a>
+  </nav>
+  <a class="btn btn-small" href="https://github.com/theodoreiulian/set-engine/releases/latest/download/SetEngine.dmg" download>
+    Download
+  </a>
+</header>
+
+<div class="page" id="top">
+  <!-- The cable that draws itself down the page. Its path is built in main.js. -->
+  <svg class="wire" aria-hidden="true" focusable="false">
+    <path class="wire-ghost" />
+    <g class="wire-live"></g>
+    <g class="wire-head">
+      <circle class="wire-head-ring" r="11" />
+      <circle class="wire-head-dot" r="4.5" />
+    </g>
+  </svg>
+
+  <main>
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow"><i class="led led-beat" aria-hidden="true"></i>Free and open source</p>
+        <h1 class="hero-title">
+          <span class="line"><span><em>Free</em> tools</span></span>
+          <span class="line"><span>for DJs.</span></span>
+        </h1>
+        <p class="hero-sub">
+          SetEngine is a Mac app that downloads music from YouTube and Spotify links,
+          works out the tracklist of a recorded DJ set, detects BPM and key, and helps
+          you build setlists that mix in key. It costs nothing, there is no account,
+          and all of the code is on GitHub.
+        </p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="https://github.com/theodoreiulian/set-engine/releases/latest/download/SetEngine.dmg" download>
+            <span>Download for macOS</span>
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v11M5 9.5l5 5 5-5M4 17.5h12"/></svg>
+          </a>
+          <a class="btn btn-ghost" href="https://github.com/theodoreiulian/set-engine" rel="noopener">
+            <svg class="gh-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 .2a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38v-1.34c-2.23.48-2.7-1.07-2.7-1.07-.36-.93-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.83 1.23.83.72 1.22 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.77-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.19c0 .21.15.46.55.38A8 8 0 0 0 8 .2z"/></svg>
+            <span>View on GitHub</span>
+          </a>
+        </div>
+        <p class="cta-note hero-note">
+          <strong>macOS only for now.</strong> Needs macOS 12 or later. Works on Apple Silicon and Intel.
+        </p>
+      </div>
+
+      <div class="hero-art" aria-hidden="true">
+        <svg class="deck" viewBox="0 0 720 720">
+          <!-- plinth -->
+          <path class="hd s-struct" style="--i:0" pathLength="1" d="M76 60h568a36 36 0 0 1 36 36v528a36 36 0 0 1-36 36H76a36 36 0 0 1-36-36V96a36 36 0 0 1 36-36z"/>
+          <!-- platter -->
+          <path class="hd s-green s-heavy" style="--i:2" pathLength="1" d="M70 360a250 250 0 1 0 500 0a250 250 0 1 0-500 0z"/>
+          <g class="platter">
+            <circle class="strobe" cx="320" cy="360" r="236"/>
+            <path class="hd s-green s-faint" style="--i:4" pathLength="1" d="M118 360a202 202 0 1 0 404 0a202 202 0 1 0-404 0z"/>
+            <path class="hd s-green s-faint" style="--i:5" pathLength="1" d="M152 360a168 168 0 1 0 336 0a168 168 0 1 0-336 0z"/>
+            <path class="hd s-green s-faint" style="--i:6" pathLength="1" d="M186 360a134 134 0 1 0 268 0a134 134 0 1 0-268 0z"/>
+            <path class="hd s-green s-heavy" style="--i:7" pathLength="1" d="M236 360a84 84 0 1 0 168 0a84 84 0 1 0-168 0z"/>
+            <path id="label-arc" fill="none" d="M262 360a58 58 0 1 1 116 0a58 58 0 1 1-116 0"/>
+            <text class="label-text"><textPath href="#label-arc" startOffset="0">SETENGINE · 33⅓ RPM · SIDE A ·</textPath></text>
+            <circle class="spindle" cx="320" cy="360" r="9"/>
+          </g>
+          <!-- tonearm: a background-coloured stroke first, so the grooves break behind it -->
+          <path class="arm-mask" d="M612 150 592 408 500 500"/>
+          <circle class="arm-mask-fill" cx="612" cy="150" r="52"/>
+          <path class="hd s-green s-heavy" style="--i:9" pathLength="1" d="M609 190 592 408 500 500"/>
+          <path class="hd s-green s-heavy" style="--i:10" pathLength="1" d="M574 150a38 38 0 1 0 76 0a38 38 0 1 0-76 0z"/>
+          <circle class="pivot" cx="612" cy="150" r="11"/>
+          <path class="hd s-green s-heavy" style="--i:11" pathLength="1" d="M512 488 484 516"/>
+          <!-- pitch fader and start button -->
+          <path class="hd s-struct" style="--i:12" pathLength="1" d="M628 452v150"/>
+          <path class="hd s-struct" style="--i:13" pathLength="1" d="M610 512h36v26h-36z"/>
+          <path class="hd s-struct" style="--i:13" pathLength="1" d="M76 596h62v36H76z"/>
+          <text class="deck-text" x="600" y="628">PITCH</text>
+          <text class="deck-text" x="76" y="582">START</text>
+          <text class="deck-text deck-out" x="330" y="640">OUT</text>
+        </svg>
+        <span class="jack jack-hero" data-jack="out"></span>
+      </div>
+    </section>
+
+    <section class="features" id="features">
+      <header class="features-intro gutter reveal">
+        <p class="eyebrow">Features</p>
+        <h2>What it does</h2>
+        <p>Two main tools, plus three smaller ones for your library.</p>
+      </header>
+
+      <article class="feature">
+        <div class="feature-copy gutter reveal">
+          <p class="channel"><span>CH 01</span> Download</p>
+          <h3>Download<br>from a link</h3>
+          <p>
+            Paste a link from YouTube, YouTube Music or Spotify. SetEngine works out
+            whether it's a single track, a playlist or an album and adds it to the
+            queue. You don't sign in to anything.
+          </p>
+          <dl class="specs">
+            <div><dt>Output</dt><dd>MP3 up to 320 kbps, tagged, with cover art</dd></div>
+            <div><dt>Queue</dt><dd>Five downloads at once</dd></div>
+            <div><dt>Spotify</dt><dd>Needs spotdl installed, which is optional</dd></div>
+          </dl>
+        </div>
+        <figure class="module" data-module="download">
+          <span class="jack jack-in" data-jack="in"></span>
+          <figcaption><i class="led"></i>CH 01 · DOWNLOAD</figcaption>
+          <svg data-art="download" viewBox="0 0 600 450" role="img" aria-label="A pasted link becomes a waveform, then three finished downloads."></svg>
+          <span class="jack jack-out" data-jack="out"></span>
+        </figure>
+      </article>
+
+      <article class="feature">
+        <div class="feature-copy gutter reveal">
+          <p class="channel"><span>CH 02</span> Set Extraction <b>Beta</b></p>
+          <h3>Get the tracklist<br>of a DJ set</h3>
+          <p>
+            Paste a link to a recorded DJ set on YouTube. If the uploader or someone
+            in the comments posted a tracklist that covers the whole set, SetEngine
+            uses that. It identifies the rest by directly analyzing the audio. You can then download
+            single tracks or the whole set.
+          </p>
+          <dl class="specs">
+            <div><dt>Cost</dt><dd>Free, with no account or API key</dd></div>
+            <div><dt>Privacy</dt><dd>The audio is fingerprinted on your Mac and is never uploaded</dd></div>
+            <div><dt>Limits</dt><dd>Unreleased tracks and bootlegs often can't be identified. The tracklist shows where the gaps are</dd></div>
+          </dl>
+        </div>
+        <figure class="module" data-module="extract">
+          <span class="jack jack-in" data-jack="in"></span>
+          <figcaption><i class="led"></i>CH 02 · SET EXTRACTION</figcaption>
+          <svg data-art="extract" viewBox="0 0 600 450" role="img" aria-label="A long set waveform is probed and resolved into a tracklist, with one stretch marked unidentified."></svg>
+          <span class="jack jack-out" data-jack="out"></span>
+        </figure>
+      </article>
+
+      <div class="module module-wide module-trio" data-module="more">
+        <span class="jack jack-in" data-jack="in"></span>
+        <p class="module-cap"><i class="led"></i>ALSO INCLUDED</p>
+        <header class="trio-head">
+          <h2>Also in the app</h2>
+          <p>Three tools for the music you already have on disk.</p>
+        </header>
+        <div class="trio">
+          <article>
+            <svg data-art="setmaker" viewBox="0 0 600 450" role="img" aria-label="Seven tracks joined by a rising line, each labelled with its Camelot key and BPM."></svg>
+            <h3>Set Maker</h3>
+            <p>
+              Analyzes a folder for BPM and key, lets you rate tracks, and orders
+              them into a setlist where each transition is in key. It imports and
+              exports .m3u playlists.
+            </p>
+          </article>
+          <article>
+            <svg data-art="match" viewBox="0 0 600 450" role="group" aria-label="Camelot wheel. Pick a key to see which keys mix with it."></svg>
+            <h3>Match Maker</h3>
+            <p>
+              Pick a track and it lists the ones in your library that mix with it,
+              by key and BPM. Click a key on the wheel to see which keys go together.
+            </p>
+          </article>
+          <article>
+            <svg data-art="sorter" viewBox="0 0 600 450" role="img" aria-label="A playing track is routed into two of four numbered folders."></svg>
+            <h3>Crate Sorter</h3>
+            <p>
+              Plays each track in a folder and copies it into the folders you choose
+              when you press a number key. Your original files are not moved.
+            </p>
+          </article>
+        </div>
+        <span class="jack jack-out" data-jack="out"></span>
+      </div>
+    </section>
+
+    <section class="install" id="open-source">
+      <div class="module module-wide module-open" data-module="open">
+        <span class="jack jack-in" data-jack="in"></span>
+        <p class="module-cap"><i class="led"></i>OPEN SOURCE</p>
+        <div class="open-grid">
+          <h2>Free and<br>open source</h2>
+          <div class="open-copy">
+            <p>
+              SetEngine is free to download and free to use. There is no paid version
+              and no account to create.
+            </p>
+            <p>
+              All of the source code is on GitHub under the MIT license. You can read
+              it, change it and build it yourself. Bug reports and pull requests are
+              welcome.
+            </p>
+            <div class="open-actions">
+              <a class="btn btn-ghost" href="https://github.com/theodoreiulian/set-engine" rel="noopener">
+                <svg class="gh-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 .2a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38v-1.34c-2.23.48-2.7-1.07-2.7-1.07-.36-.93-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.83 1.23.83.72 1.22 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.77-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.19c0 .21.15.46.55.38A8 8 0 0 0 8 .2z"/></svg>
+                <span>View the source on GitHub</span>
+              </a>
+              <a class="text-link" href="https://github.com/theodoreiulian/set-engine/blob/master/CONTRIBUTING.md" rel="noopener">How to contribute</a>
+            </div>
+          </div>
+        </div>
+        <span class="jack jack-out" data-jack="out"></span>
+      </div>
+    </section>
+
+    <section class="install" id="install">
+      <div class="module module-wide" data-module="install">
+        <span class="jack jack-in" data-jack="in"></span>
+        <p class="module-cap"><i class="led"></i>INSTALL</p>
+        <h2>How to install it</h2>
+        <ol class="steps">
+          <li class="f" data-s="0.1" data-w="0.2">
+            <span class="step-n">01</span>
+            <h3>Download the disk image</h3>
+            <p>It is one 265 MB file that works on both Apple Silicon and Intel Macs.</p>
+          </li>
+          <li class="f" data-s="0.35" data-w="0.2">
+            <span class="step-n">02</span>
+            <h3>Drag it to Applications</h3>
+            <p>There is nothing else to install. yt-dlp and ffmpeg come inside the app, and it keeps yt-dlp up to date.</p>
+          </li>
+          <li class="f" data-s="0.6" data-w="0.2">
+            <span class="step-n">03</span>
+            <h3>Allow it the first time</h3>
+            <p>SetEngine isn't signed with a paid Apple developer certificate, so macOS blocks the
+              first launch. Open System Settings, go to Privacy &amp; Security and click
+              <b>Open Anyway</b>. You only do this once.</p>
+          </li>
+        </ol>
+        <span class="jack jack-out" data-jack="out"></span>
+      </div>
+    </section>
+
+    <section class="finale">
+      <div class="module module-final" data-module="final">
+        <span class="jack jack-in" data-jack="in"></span>
+        <p class="module-cap"><i class="led"></i>DOWNLOAD</p>
+        <h2>Download SetEngine</h2>
+        <div class="final-actions">
+          <a class="btn btn-primary btn-large" href="https://github.com/theodoreiulian/set-engine/releases/latest/download/SetEngine.dmg" download>
+            <span>Download for macOS</span>
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v11M5 9.5l5 5 5-5M4 17.5h12"/></svg>
+          </a>
+          <a class="btn btn-ghost btn-large" href="https://github.com/theodoreiulian/set-engine" rel="noopener">
+            <svg class="gh-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 .2a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38v-1.34c-2.23.48-2.7-1.07-2.7-1.07-.36-.93-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.83 1.23.83.72 1.22 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.77-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.19c0 .21.15.46.55.38A8 8 0 0 0 8 .2z"/></svg>
+            <span>View on GitHub</span>
+          </a>
+        </div>
+        <p class="cta-note">
+          Free and open source under the MIT license.
+          <strong>macOS only for now</strong>, version 12 (Monterey) or later.<br>
+          On Windows or Linux you can <a href="https://github.com/theodoreiulian/set-engine#run-from-source-windows-linux-or-development" rel="noopener">run it from source</a>.
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <a class="brand" href="#top">
+      <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+        <circle cx="18" cy="21" r="13" />
+        <circle cx="18" cy="21" r="4" />
+        <path d="M33 6.5 31.6 17l-5 5.2" />
+        <circle cx="33" cy="5" r="2.2" />
+      </svg>
+      <span>SetEngine</span>
+    </a>
+    <p>Only download music you have the right to download. SetEngine is not affiliated with YouTube, Spotify or Shazam.</p>
+    <nav aria-label="Project links">
+      <a href="https://github.com/theodoreiulian/set-engine" rel="noopener">Source</a>
+      <a href="https://github.com/theodoreiulian/set-engine/releases" rel="noopener">Releases</a>
+      <a href="https://github.com/theodoreiulian/set-engine/blob/master/LICENSE" rel="noopener">MIT License</a>
+    </nav>
+  </footer>
+</div>
+
+<script src="main.js" defer></script>
+</body>
+</html>

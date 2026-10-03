@@ -91,6 +91,15 @@ Three scripts and one module make it work, and most of what is in them was measu
 
 **What is NOT done, and matters:** there is no Apple Developer ID, so the build is ad-hoc signed and **Gatekeeper blocks the first launch** — the user has to use System Settings → Privacy & Security → Open Anyway (documented in the README). Developer ID signing + notarization is wired in `forge.config.js` behind `APPLE_SIGNING_IDENTITY` / `APPLE_ID` / `APPLE_APP_PASSWORD` / `APPLE_TEAM_ID`, with `build/entitlements.mac.plist`, but **has never been run**. `spotdl` and `aria2c` are not bundled (spotdl has no usable standalone macOS build); both stay optional and are found on `PATH` if installed.
 
+## The website
+
+`site/` is the marketing page — three static files (`index.html`, `styles.css`, `main.js`) plus `site/assets/icon.png`, with **no build step and no dependencies**. It is not part of the app and is never packaged. Preview it with `python3 -m http.server --directory site`; any static host can serve the folder as-is.
+
+- **Every download button points at `releases/latest/download/SetEngine.dmg`**, the stable address `release.yml` publishes to. It 404s until a `v*` tag has been pushed and the release exists.
+- **The cable is the page's one idea.** `main.js` builds an SVG path between `[data-jack]` elements (out → in, in DOM order) and draws it to wherever the scroll position has reached; each `.module` panel draws its own illustration while the cable's tip is passing through it (`data-s` / `data-w` on a stroke are the start and span of its slice of that panel's progress). Adding a section means adding a panel with a `jack-in` and a `jack-out`; the cable re-routes itself.
+- **One path per stroke that has to draw progressively.** A dash pattern restarts on every subpath, so a path holding several subpaths draws them all at once — the first version of the cable ran ahead of the panels for exactly that reason. The cable is one `<path>` per run and each waveform is one `<path>` per bar (`sweep()`).
+- The copy states what the app does and what it doesn't (macOS only for now, Set Extraction is beta, first launch needs "Open Anyway"). Keep it in step with the README when either changes.
+
 ## Tech stack & build
 
 - **Stock Electron** (`electron` ^42 from npm) — see "Electron runtime" below.
