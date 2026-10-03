@@ -1,9 +1,9 @@
-import { ipcMain, dialog } from 'electron';
+import { ipcMain, dialog, net } from 'electron';
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import os from 'node:os';
-import { classifyUrl } from './sources.js';
+import { classifyUrl, expandShortLink } from './sources.js';
 import { buildSet, rescoreTour } from './set-maker.js';
 import { writeRating, readRating, writeBpmKey } from './rating-writer.js';
 import { analyzeTrack } from './audio-analyzer.js';
@@ -83,12 +83,15 @@ async function resolveExisting(p) {
 }
 
 export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, settingsManager, extractionManager) {
+  const netFetch = (...args) => net.fetch(...args);
   // Downloads run unauthenticated. The embedded sign-in browser was removed, so
   // there's no session to harvest cookies from — yt-dlp/spotdl fetch public
   // content directly (cookiePath is null). Spotify never needed cookies anyway.
   ipcMain.handle('download:url', async (event, url) => {
     try {
-      const id = await downloadManager.addDownload(url, null);
+      // A share-sheet short link (on.soundcloud.com/…, link.deezer.com/…) is
+      // followed first: it says nothing about what it points at.
+      const id = await downloadManager.addDownload(await expandShortLink(url, { fetchImpl: netFetch }), null);
       return { success: true, id };
     } catch (err) {
       return { success: false, error: err.message };
@@ -193,7 +196,7 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
     return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
   });
 
-  ipcMain.handle('url:classify', (event, url) => classifyUrl(url));
+  ipcMain.handle('url:classify', async (event, url) => classifyUrl(await expandShortLink(url, { fetchImpl: netFetch })));
 
   ipcMain.handle('deps:check', () => {
     return ytDlp.checkDependencies();

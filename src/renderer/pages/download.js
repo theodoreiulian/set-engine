@@ -1,12 +1,15 @@
 import { showToast } from '../components/toast.js';
 import { showModal } from '../components/modal.js';
 
-// Simple URL-paste download page. The user pastes a YouTube / YouTube Music or
-// Spotify link (song, playlist, or album) and the download starts. The
-// destination folder lives right here so there's no need to dig into Settings.
-// Source (YouTube vs Spotify) and shape (song vs playlist/album) are
+// Simple URL-paste download page. The user pastes a YouTube / YouTube Music,
+// Spotify, SoundCloud, Deezer or Tidal link (song, playlist, or album) and the
+// download starts. The destination folder lives right here so there's no need
+// to dig into Settings. Source and shape (song vs playlist/album) are
 // auto-detected from the URL via the main-process classifier — the same one the
 // download manager uses — so a single box handles everything.
+// Sources where a "playlist"-shaped link may just as well be an album.
+const ALBUM_SOURCES = new Set(['spotify', 'deezer', 'tidal']);
+
 export class DownloadPage {
   constructor(app) {
     this.app = app;
@@ -44,11 +47,12 @@ export class DownloadPage {
       <label class="form-label" for="download-url-input">Paste a link</label>
       <div class="url-download-row">
         <input type="text" class="input-lg" id="download-url-input"
-               placeholder="YouTube or Spotify link — song, playlist, or album"
+               placeholder="YouTube, Spotify, SoundCloud, Deezer or Tidal link — song, playlist, or album"
                spellcheck="false" autocomplete="off">
         <button class="btn" id="download-start-btn">DOWNLOAD</button>
       </div>
-      <div class="form-helper">Works with YouTube / YouTube Music and Spotify. Press Enter or click DOWNLOAD — it figures out song vs. playlist/album automatically.</div>
+      <div class="form-helper">Works with YouTube / YouTube Music, Spotify, SoundCloud, Deezer and Tidal. Press Enter or click DOWNLOAD — it figures out song vs. playlist/album automatically.</div>
+      <div class="form-helper">Deezer and Tidal don't allow downloads, so for those links SetEngine finds the same recording on YouTube or SoundCloud and checks it against the link before downloading. A track it can't verify is skipped rather than replaced with a near match.</div>
     `;
     body.appendChild(urlGroup);
 
@@ -130,7 +134,7 @@ export class DownloadPage {
       try { cls = await window.setengine.classifyURL(url); } catch (_) { /* fall through */ }
     }
     if (!cls || !cls.source) {
-      showToast('Not a recognized link — paste a YouTube or Spotify URL', 'error');
+      showToast('Not a recognized link — paste a YouTube, Spotify, SoundCloud, Deezer or Tidal URL', 'error');
       return;
     }
 
@@ -149,7 +153,7 @@ export class DownloadPage {
         return;
       }
       const label = cls.kind === 'playlist'
-        ? (cls.source === 'spotify' ? 'album / playlist' : 'playlist')
+        ? (ALBUM_SOURCES.has(cls.source) ? 'album / playlist' : 'playlist')
         : 'song';
       showToast(`Added ${label} to queue`, 'success');
       this.urlInput.value = '';
@@ -178,7 +182,7 @@ export class DownloadPage {
         <li>pipx: <code>pipx install spotdl</code></li>
         <li>pip: <code>pip install -U spotdl</code></li>
       </ul>
-      <p style="color: var(--text-secondary); font-size: 12px; margin-top: 12px;">YouTube links download without spotdl.</p>`,
+      <p style="color: var(--text-secondary); font-size: 12px; margin-top: 12px;">Links from every other source download without spotdl.</p>`,
       ['OK']
     );
     return false;

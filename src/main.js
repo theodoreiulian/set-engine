@@ -6,6 +6,7 @@ import { Readable } from 'node:stream';
 import started from 'electron-squirrel-startup';
 import YtDlpWrapper from './main/ytdlp-wrapper.js';
 import SpotdlWrapper from './main/spotdl-wrapper.js';
+import CatalogWrapper from './main/catalog-wrapper.js';
 import DownloadManager from './main/download-manager.js';
 import SettingsManager from './main/settings-manager.js';
 import ExtractionJobManager from './main/extraction-manager.js';
@@ -147,7 +148,10 @@ const createWindow = () => {
   ytDlp = new YtDlpWrapper();
   spotdl = new SpotdlWrapper();
   settingsManager = new SettingsManager();
-  downloadManager = new DownloadManager(mainWindow, ytDlp, spotdl);
+  // Deezer / Tidal links: matched to the same recording elsewhere and downloaded
+  // through yt-dlp, so this "engine" spawns nothing of its own.
+  const catalog = new CatalogWrapper(ytDlp, { fetchImpl: (...args) => net.fetch(...args) });
+  downloadManager = new DownloadManager(mainWindow, ytDlp, spotdl, catalog);
   extractionManager = new ExtractionJobManager(mainWindow, ytDlp, settingsManager);
 
   // Extraction jobs live only in memory (not persisted across restart), so every

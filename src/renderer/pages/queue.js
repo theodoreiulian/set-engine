@@ -14,6 +14,9 @@ const STATUS_CONFIG = {
 const SOURCE_BADGE = {
   'youtube-music': { label: 'YT', title: 'YouTube Music' },
   spotify: { label: 'SPOTIFY', title: 'Spotify (via spotdl)' },
+  soundcloud: { label: 'SOUNDCLOUD', title: 'SoundCloud' },
+  deezer: { label: 'DEEZER', title: 'Deezer (matched on YouTube / SoundCloud)' },
+  tidal: { label: 'TIDAL', title: 'Tidal (matched on YouTube / SoundCloud)' },
 };
 
 function sourceBadgeHtml(source) {

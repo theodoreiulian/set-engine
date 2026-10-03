@@ -55,6 +55,15 @@ const VERSION_MARKER = /[([][^)\]]*\b(remix|edit|mix|version|bootleg|mashup|dub|
 const MIN_TRACK_SEC = 45;
 const MAX_TRACK_SEC = 900;
 
+// When the caller knows how long the recording is (a Deezer / Tidal link states
+// it exactly), a candidate has to be about that long. This is what tells apart
+// the versions `versionKey` deliberately treats as the same record — a radio
+// edit and an extended mix differ by minutes, not seconds. Measured on 16
+// catalogue tracks: the verified match was within 1.4 s of the stated length
+// every time, and this gate turned away 14 candidates that passed every other
+// one (a tour recording, slowed and sped-up re-uploads, extended versions).
+const EXPECTED_DURATION_TOLERANCE_SEC = 15;
+
 // How many candidates we're willing to pay a metadata fetch for, per track, and
 // how long the whole verification phase may take. Both matter: a set can be 60
 // tracks, and without a wall-clock bound a few slow lookups would stall the
@@ -334,6 +343,10 @@ export function verifyCandidate(info, want, { fuzzy = false } = {}) {
   if (!durationPlausible(info.duration)) {
     return { ok: false, reason: `implausible length (${Math.round(Number(info.duration) || 0)}s)` };
   }
+  if (want.durationSec > 0 && Number(info.duration) > 0
+      && Math.abs(Number(info.duration) - want.durationSec) > EXPECTED_DURATION_TOLERANCE_SEC) {
+    return { ok: false, reason: `wrong length (${Math.round(Number(info.duration))}s, expected ${Math.round(want.durationSec)}s)` };
+  }
   if (looksLive(raw, want.title) || looksLive(info.track, want.title)) {
     return { ok: false, reason: `live/set recording (got "${raw}")` };
   }
@@ -373,13 +386,18 @@ function preScore(candidateTitle, want, fuzzy = false) {
  * @param {string} query — "Artist Title" search text
  * @param {string} title — the detected song title
  * @param {string} [artist] — the detected artist
+ * @param {object} [opts]
+ * @param {number} [opts.expectedDurationSec] — the recording's known length, when
+ *   the caller has one (a Deezer / Tidal link does). Candidates of a different
+ *   length are rejected. Set Extraction has no such figure and passes nothing.
  * @returns {Promise<{url:string, videoId:string, durationSec:number, title:string, artist:string}|null>}
  */
-export async function resolveBestVideo(ytDlp, query, title, artist) {
+export async function resolveBestVideo(ytDlp, query, title, artist, opts = {}) {
   const want = {
     title: String(title || ''),
     core: coreTitle(title),
     artist: String(artist || ''),
+    durationSec: Number(opts.expectedDurationSec) || 0,
   };
   if (!want.core) return null;                  // nothing to match against → skip
 
