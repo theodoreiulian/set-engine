@@ -322,7 +322,6 @@ Both look undefined to a linter but are real, injected by Forge.
 | `downloadFolder` | string | Defaults to `app.getPath('music')`. Changed from the Download page. |
 | `audioQuality` | number | `128` \| `192` \| `320` kbps (320). |
 | `filenameTemplate` | string | yt-dlp-style (`%(title)s`). |
-| `showDisclaimer` | boolean | (true) First-launch disclaimer. |
 | `extractionBetaAck` | boolean | (false) Set when the user dismisses the one-time Set Extraction beta/accuracy warning (shown on first open of the page). |
 | `usePublishedTracklist` | boolean | (true) Use the uploader's chapters/description tracklist when present, skipping download + recognition entirely. |
 | `recognizerMinConfidence` | number | 0–100 (60). No longer a score threshold — there is no score to threshold. It selects the lowest confidence tier that appears at all (see `confidenceOf()` in `anchor.js`): **≥ 80** lists only *proven* plays; the default band lists proven and likely plainly and `uncertain` ones badged; **< 40** additionally lists single-sighting plays, which is measurably noisy (11 of 12 junk, and with one sighting there is no chain, so the pinned-impostor check cannot fire either). Applied via `acceptOptionsFor()` in `shazam/recognize.js`. |
