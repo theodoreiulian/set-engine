@@ -15,7 +15,6 @@ const DEFAULTS = {
   downloadFolder: '',  // Populated at construction time with app.getPath('music')
   audioQuality: 320,   // kbps — one of 128, 192, 320
   filenameTemplate: '%(title)s',
-  showDisclaimer: true, // Show first-launch disclaimer
   // Set Extraction is still a beta feature (recognition is imperfect). Show a
   // one-time accuracy/in-development warning the first time the page is opened;
   // flipped to true once the user acknowledges it.
@@ -59,7 +58,6 @@ export default class SettingsManager {
           enum: [128, 192, 320],
         },
         filenameTemplate: { type: 'string' },
-        showDisclaimer: { type: 'boolean' },
         extractionBetaAck: { type: 'boolean' },
         usePublishedTracklist: { type: 'boolean' },
         recognizerMinConfidence: { type: 'number', minimum: 0, maximum: 100 },

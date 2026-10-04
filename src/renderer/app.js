@@ -78,7 +78,6 @@ export class App {
     this.navigateTo('download');
 
     this.setupIpcListeners();
-    await this.checkDisclaimer();
     await this.checkYtDlpHealth();
   }
 
@@ -250,24 +249,4 @@ export class App {
     } catch (_) { /* ignore */ }
   }
 
-  async checkDisclaimer() {
-    if (!window.setengine) return;
-
-    try {
-      const settings = await window.setengine.getSettings();
-      if (settings && settings.showDisclaimer !== false) {
-        const result = await showModal(
-          'Disclaimer',
-          `<p>SetEngine is intended for downloading music you have the legal right to access. You are solely responsible for ensuring your use complies with applicable laws and YouTube's Terms of Service.</p>
-          <p>This tool is provided as-is. The developer assumes no liability for misuse.</p>
-          <p>By clicking ACCEPT, you acknowledge and agree to these terms.</p>`,
-          ['ACCEPT']
-        );
-
-        if (result === 'ACCEPT') {
-          await window.setengine.saveSettings({ showDisclaimer: false });
-        }
-      }
-    } catch (_) { /* ignore */ }
-  }
 }
