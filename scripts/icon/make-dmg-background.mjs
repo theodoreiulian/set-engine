@@ -23,8 +23,17 @@ const L = JSON.parse(fs.readFileSync(path.join(OUT, 'layout.json'), 'utf8'));
 
 const W = L.window.width, H = L.window.height;
 const APP = L.app, APPS = L.applications;
-// The instruction line must stay clear of the bottom strip a path bar can hide.
 const TEXT_Y = 322;
+// The first-launch steps sit under the drag instruction. The build is not
+// notarized, so Gatekeeper refuses the first launch and the way through is
+// three screens away in System Settings — this is the one place every new user
+// is guaranteed to be looking. Wording follows Apple's own support page ("Open
+// a Mac app from an unknown developer"). The last line must stay clear of the
+// bottom strip a path bar can hide.
+const RULE_Y = 354;
+const STEPS_Y = 388;
+const STEP_GAP = 28;
+const STEPS_X = 86;
 
 // Same palette as the app icon (scripts/icon/make-icon.mjs): flat, no glow.
 const BG = '#1d1e20';
@@ -57,6 +66,23 @@ for (let i = 0, x = 24; x <= W - 24; i++, x += STEP) {
 const plate = ({ x, y }) =>
   `<rect x="${x - L.plate.width / 2}" y="${y + L.plate.offsetY - L.plate.height / 2}" width="${L.plate.width}" height="${L.plate.height}" rx="${L.plate.height / 2}" fill="#70747a"/>`;
 
+// Bold white for the things the user has to find and click on screen.
+const b = (t) => `<tspan font-weight="700" fill="#fff">${t}</tspan>`;
+const STEPS = [
+  `Open SetEngine. macOS says it could not verify it. Click ${b('Done')}.`,
+  `Open ${b('System Settings')}, then ${b('Privacy &amp; Security')}, and scroll down to ${b('Security')}.`,
+  `Click ${b('Open Anyway')} next to SetEngine, then enter your password.`,
+];
+const steps = STEPS.map((line, i) => {
+  const y = STEPS_Y + 30 + i * STEP_GAP;
+  return `<circle cx="${STEPS_X + 9}" cy="${y - 4.5}" r="9" fill="none" stroke="${INK}" stroke-width="1.5"/>
+  <text x="${STEPS_X + 9}" y="${y}" text-anchor="middle" ${FONT} font-size="11" font-weight="700" fill="${INK}">${i + 1}</text>
+  <text x="${STEPS_X + 30}" y="${y}" ${FONT} font-size="13" fill="#c5c8cd">${line}</text>`;
+});
+const NOTE_Y = STEPS_Y + 30 + STEPS.length * STEP_GAP + 6;
+// Being told to override a security warning feels sketchy, so say why.
+const WHY_Y = NOTE_Y + 40;
+
 // The arrow sits between the two icons, clear of both.
 const half = L.iconSize / 2;
 const ax0 = APP.x + half + 26, ax1 = APPS.x - half - 26, ay = APP.y;
@@ -77,6 +103,15 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   ${plate(APPS)}
 
   <text x="${W / 2}" y="${TEXT_Y}" text-anchor="middle" ${FONT} font-size="13" font-weight="500" letter-spacing="0.4" fill="#9a9ea4">Drag SetEngine into the Applications folder</text>
+
+  <path d="M ${STEPS_X} ${RULE_Y} H ${W - STEPS_X}" stroke="#fff" stroke-opacity="0.1" stroke-width="1"/>
+  <text x="${STEPS_X}" y="${STEPS_Y}" ${FONT} font-size="11" font-weight="700" letter-spacing="2.5" fill="${INK}">THE FIRST TIME YOU OPEN IT</text>
+  ${steps.join('\n  ')}
+  <text x="${STEPS_X + 30}" y="${NOTE_Y}" ${FONT} font-size="12" fill="#8a8e94">Only needed once. After that SetEngine opens normally.</text>
+
+  <text x="${STEPS_X}" y="${WHY_Y}" ${FONT} font-size="11" font-weight="700" letter-spacing="2.5" fill="${INK}">WHY?</text>
+  <text x="${STEPS_X}" y="${WHY_Y + 24}" ${FONT} font-size="13" fill="#c5c8cd">Apple charges $99 a year to verify an app, and I am too broke to afford it.</text>
+  <text x="${STEPS_X}" y="${WHY_Y + 46}" ${FONT} font-size="13" fill="#c5c8cd">SetEngine is free and open source: <tspan fill="#fff">github.com/theodoreiulian/set-engine</tspan></text>
 </svg>
 `;
 

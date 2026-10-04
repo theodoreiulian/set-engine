@@ -32,7 +32,7 @@ background = defines['background']  # noqa: F821
 # A window taller than the picture shows a blank band — white, in light mode —
 # so the picture is given spare height at the bottom instead, holding only the
 # decorative waveform, and whatever the system takes is cropped from that.
-window_rect = ((200, 140), (layout['window']['width'], layout['contentHeight'] + layout['titleBar']))
+window_rect = ((200, 100), (layout['window']['width'], layout['contentHeight'] + layout['titleBar']))
 default_view = 'icon-view'
 show_status_bar = False
 show_tab_view = False
