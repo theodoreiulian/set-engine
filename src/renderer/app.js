@@ -136,40 +136,7 @@ export class App {
     this.sidebar.querySelectorAll('.sidebar-btn').forEach((btn) => {
       btn.classList.toggle('active', btn.dataset.page === pageName);
     });
-
-    // Set Extraction is a beta feature — warn the user once that recognition is
-    // imperfect. Fire-and-forget (the page renders behind the modal); persisted
-    // via the extractionBetaAck setting so it only appears the first time.
-    if (pageName === 'extract') this.checkExtractionBeta();
   }
-
-  async checkExtractionBeta() {
-    if (this._extractionBetaAck || !window.setengine || !window.setengine.getSettings) return;
-
-    try {
-      const settings = await window.setengine.getSettings();
-      if (settings && settings.extractionBetaAck === true) {
-        this._extractionBetaAck = true;
-        return;
-      }
-
-      await showModal(
-        'Set Extraction (Beta)',
-        `<p>Set Extraction is a <strong>beta feature</strong> and still in active development.</p>
-        <p>When the uploader published a tracklist — as chapters, description timestamps, or a pinned comment — SetEngine uses it, and the result is exact.</p>
-        <p>Otherwise the tracklist is identified from the audio, and that has real limits. Measured across five full DJ sets: roughly <strong>one track in seven isn't in the catalog at all</strong> (unreleased IDs, white labels, promos, and artists playing their own edits), and roughly <strong>one in six comes back under a different name</strong>, because the same recording is often indexed more than once under bootleg re-uploads.</p>
-        <p>Tracks it does report are cross-checked against the audio's own timing, so wrong entries are rare — but a set can still come back incomplete. Treat it as a strong starting point, not a definitive tracklist.</p>`,
-        ['GOT IT']
-      );
-
-      this._extractionBetaAck = true;
-      if (window.setengine.saveSettings) {
-        await window.setengine.saveSettings({ extractionBetaAck: true });
-      }
-    } catch (_) { /* ignore */ }
-  }
-
-
 
   setupIpcListeners() {
     if (!window.setengine) return;

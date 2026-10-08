@@ -13,6 +13,7 @@
 // The artwork is drawn around those positions, so change them there, not here.
 
 import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -121,4 +122,16 @@ fs.writeFileSync(svgPath, svg);
 for (const [scale, name] of [[1, 'background.png'], [2, 'background@2x.png']]) {
   execFileSync('rsvg-convert', ['-w', String(W * scale), '-h', String(H * scale), svgPath, '-o', path.join(OUT, name)]);
 }
-console.log(`Wrote ${path.relative(ROOT, OUT)}/background.{svg,png,@2x.png} (${W}×${H})`);
+
+const sha256 = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+const manifest = {
+  version: 1,
+  design: 'first-launch-instructions-v1',
+  width: W,
+  height: H,
+  files: Object.fromEntries(['background.svg', 'background.png', 'background@2x.png']
+    .map((name) => [name, { sha256: sha256(path.join(OUT, name)) }])),
+};
+fs.writeFileSync(path.join(OUT, 'background-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+
+console.log(`Wrote ${path.relative(ROOT, OUT)}/background.{svg,png,@2x.png} and background-manifest.json (${W}×${H})`);

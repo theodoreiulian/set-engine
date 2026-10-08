@@ -44,6 +44,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Verify first-launch installer artwork
+        run: npm run verify:dmg-artwork
+
       - name: Build SetEngine.dmg
         run: npm run dist:mac
 

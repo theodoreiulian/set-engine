@@ -1,7 +1,7 @@
 {
   "name": "setengine",
   "productName": "SetEngine",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A desktop toolkit for DJs: download tracks, extract set tracklists, analyze BPM and key, and build setlists",
   "main": ".vite/build/main.js",
   "private": true,
@@ -11,6 +11,7 @@
     "package": "electron-forge package",
     "install-app": "bash scripts/package-app.sh",
     "fetch-tools": "node scripts/fetch-tools.mjs",
+    "verify:dmg-artwork": "node scripts/make-dmg.mjs --verify-artwork",
     "dist:mac": "node scripts/fetch-tools.mjs && electron-forge package --platform=darwin --arch=universal && node scripts/make-dmg.mjs",
     "make": "electron-forge make",
     "publish": "electron-forge publish",
