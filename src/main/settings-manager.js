@@ -15,10 +15,6 @@ const DEFAULTS = {
   downloadFolder: '',  // Populated at construction time with app.getPath('music')
   audioQuality: 320,   // kbps — one of 128, 192, 320
   filenameTemplate: '%(title)s',
-  // Set Extraction is still a beta feature (recognition is imperfect). Show a
-  // one-time accuracy/in-development warning the first time the page is opened;
-  // flipped to true once the user acknowledges it.
-  extractionBetaAck: false,
 
   // ── Set Extraction (DJ-set tracklist identification) ──────────────────
   // There is deliberately no engine setting. SetEngine once offered AudD and
@@ -58,7 +54,6 @@ export default class SettingsManager {
           enum: [128, 192, 320],
         },
         filenameTemplate: { type: 'string' },
-        extractionBetaAck: { type: 'boolean' },
         usePublishedTracklist: { type: 'boolean' },
         recognizerMinConfidence: { type: 'number', minimum: 0, maximum: 100 },
       },
@@ -66,13 +61,18 @@ export default class SettingsManager {
 
     this.defaults = defaults;
 
-    // One-time cleanup for anyone upgrading from a build that had the AudD /
-    // ACRCloud engines. Two of these are *user credentials* sitting in a
-    // plaintext JSON file; now that no code path can use them, leaving them on
-    // disk would be a stale secret and nothing else. `recognizer` goes too —
-    // there is only one engine, so a persisted choice could only ever name one
-    // that no longer exists.
-    for (const key of ['recognizer', 'auddApiToken', 'acrHost', 'acrAccessKey', 'acrAccessSecret']) {
+    // One-time cleanup for settings whose UI and behavior no longer exist.
+    // The AudD / ACRCloud values include user credentials in plaintext, while
+    // the acknowledgement flags belonged to first-run popups that were removed.
+    for (const key of [
+      'recognizer',
+      'auddApiToken',
+      'acrHost',
+      'acrAccessKey',
+      'acrAccessSecret',
+      'showDisclaimer',
+      'extractionBetaAck',
+    ]) {
       if (this.store.has(key)) this.store.delete(key);
     }
   }
