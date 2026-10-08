@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "design": "first-launch-instructions-v1",
+  "width": 660,
+  "height": 684,
+  "files": {
+    "background.svg": {
+      "sha256": "503c6091076be36ed7d6808e5fe819a6c375f71d30ebd23da3bb2c59755b0713"
+    },
+    "background.png": {
+      "sha256": "2701461354e86421313698973e804c2330185a50c49819b648d4c5d8bfdb0733"
+    },
+    "background@2x.png": {
+      "sha256": "6f4f412fb0a6f1373fb564c223e8593e4cc6e8ddc5b8ce0c3f9a75bcf0820a08"
+    }
+  }
+}

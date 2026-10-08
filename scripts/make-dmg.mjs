@@ -19,6 +19,7 @@
 // first use. Needs python3 and network access that once; nothing after.
 
 import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -41,6 +42,64 @@ const VENV = path.join(ROOT, 'vendor', 'dmgbuild');
 const ASSETS = path.join(ROOT, 'assets', 'dmg');
 
 const run = (cmd, args) => execFileSync(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] }).toString();
+const sha256 = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+
+function pngDimensions(file) {
+  const data = fs.readFileSync(file);
+  const signature = '89504e470d0a1a0a';
+  if (data.length < 24 || data.subarray(0, 8).toString('hex') !== signature) {
+    throw new Error(`${path.relative(ROOT, file)} is not a valid PNG.`);
+  }
+  return { width: data.readUInt32BE(16), height: data.readUInt32BE(20) };
+}
+
+// The website always serves releases/latest/download/SetEngine.dmg. Refuse to
+// produce that release artifact if an old, short background was accidentally
+// restored, the PNGs were not regenerated after editing the SVG, or the
+// first-launch instructions disappeared from the source artwork.
+function verifyArtwork() {
+  const layout = JSON.parse(fs.readFileSync(path.join(ASSETS, 'layout.json'), 'utf8'));
+  const manifest = JSON.parse(fs.readFileSync(path.join(ASSETS, 'background-manifest.json'), 'utf8'));
+  if (manifest.version !== 1 || manifest.design !== 'first-launch-instructions-v1') {
+    throw new Error('The DMG artwork manifest does not identify the first-launch instruction design.');
+  }
+  if (manifest.width !== layout.window.width || manifest.height !== layout.window.height) {
+    throw new Error('The DMG artwork manifest dimensions do not match layout.json.');
+  }
+
+  for (const name of ['background.svg', 'background.png', 'background@2x.png']) {
+    const file = path.join(ASSETS, name);
+    const expected = manifest.files && manifest.files[name] && manifest.files[name].sha256;
+    if (!expected || sha256(file) !== expected) {
+      throw new Error(`${name} does not match background-manifest.json. Regenerate it with node scripts/icon/make-dmg-background.mjs.`);
+    }
+  }
+
+  const one = pngDimensions(path.join(ASSETS, 'background.png'));
+  const two = pngDimensions(path.join(ASSETS, 'background@2x.png'));
+  if (one.width !== manifest.width || one.height !== manifest.height
+      || two.width !== manifest.width * 2 || two.height !== manifest.height * 2) {
+    throw new Error('The DMG background PNG dimensions do not match the 1x/2x artwork manifest.');
+  }
+
+  const svg = fs.readFileSync(path.join(ASSETS, 'background.svg'), 'utf8');
+  for (const copy of [
+    'THE FIRST TIME YOU OPEN IT',
+    'System Settings',
+    'Privacy &amp; Security',
+    'Open Anyway',
+    'Only needed once',
+    'WHY?',
+  ]) {
+    if (!svg.includes(copy)) throw new Error(`The DMG background is missing required first-launch copy: ${copy}`);
+  }
+}
+
+verifyArtwork();
+if (process.argv.includes('--verify-artwork')) {
+  console.log('Verified DMG artwork: first-launch instructions, hashes, and Retina dimensions.');
+  process.exit(0);
+}
 
 function findApp() {
   if (process.argv[2]) return path.resolve(process.argv[2]);
@@ -106,6 +165,7 @@ try {
     '-cathidpicheck', path.join(ASSETS, 'background.png'), path.join(ASSETS, 'background@2x.png'),
     '-out', background,
   ]);
+  const backgroundHash = sha256(background);
 
   // 1. dmgbuild lays the window out on a writable image.
   const writable = path.join(work, 'writable.dmg');
@@ -124,6 +184,9 @@ try {
   try {
     if (volume !== `/Volumes/${VOLUME}`) throw new Error(`The image mounted at ${volume}, not /Volumes/${VOLUME}.`);
     run(python, [fixBackground, volume]);
+    if (sha256(path.join(volume, '.background.tiff')) !== backgroundHash) {
+      throw new Error('The writable DMG does not contain the current Retina background artwork.');
+    }
   } finally {
     run('hdiutil', ['detach', volume]);
   }
@@ -146,6 +209,9 @@ try {
     run('codesign', ['--verify', '--deep', '--strict', path.join(mount, 'SetEngine.app')]);
     fs.lstatSync(path.join(mount, 'Applications'));
     run(python, [fixBackground, '--check', mount]);
+    if (sha256(path.join(mount, '.background.tiff')) !== backgroundHash) {
+      throw new Error('The finished DMG does not contain the current Retina background artwork.');
+    }
   } finally {
     run('hdiutil', ['detach', mount]);
   }
