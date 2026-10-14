@@ -4,7 +4,7 @@ A desktop toolkit for DJs. Download tracks, find out what's playing in a set, an
 
 Paste a link to a song, playlist, or album from YouTube, YouTube Music, Spotify, SoundCloud, Deezer, or Tidal and the download starts. Beyond downloading, SetEngine fingerprints a recorded DJ set to recover its tracklist, detects BPM and musical key offline, surfaces harmonically compatible tracks for mixing, and sequences setlists by Camelot key compatibility.
 
-It uses [yt-dlp](https://github.com/yt-dlp/yt-dlp) and, for Spotify, [spotdl](https://github.com/spotDL/spotify-downloader) under the hood. The macOS app comes with everything it needs built in; on Windows and Linux you install the tools once during setup.
+It uses [yt-dlp](https://github.com/yt-dlp/yt-dlp) under the hood, and [spotdl](https://github.com/spotDL/spotify-downloader) for Spotify links when it's installed. The macOS app comes with everything it needs built in; on Windows and Linux you install the tools once during setup.
 
 **macOS · Windows · Linux**
 
@@ -22,7 +22,7 @@ SetEngine has four areas:
 ## Features
 
 - **Paste and download.** Drop a link from YouTube, YouTube Music, Spotify, SoundCloud, Deezer, or Tidal. SetEngine works out whether it's one track or a whole playlist or album.
-- **Spotify too.** Spotify links download from the same box once spotdl is installed.
+- **Spotify too.** Spotify links download from the same box. With spotdl installed it does the work; without it, SetEngine finds and checks the same recording on YouTube itself.
 - **Deezer and Tidal links.** Neither service allows downloads, so SetEngine reads what the link names, finds the same recording on YouTube or SoundCloud, checks the title, artist, version, and length against the link, and downloads that. The file is tagged with the album and cover from the link. A track it can't verify is skipped instead of being replaced with a near match. Tidal playlists are limited to their first 50 tracks, which is all Tidal's public page lists.
 - **Download queue.** Up to 5 downloads run at once, and they go faster when aria2c is installed.
 - **Set Extraction.** Point it at a recorded DJ set and it produces the tracklist, then you download the tracks individually or grab the whole set. It works in two stages: if the uploader already published a tracklist (YouTube chapters or timestamps in the description) SetEngine just uses it — that's exact, instant, and it doesn't even download the set. Otherwise it identifies tracks from the audio — **no API key, no account, no cost.** Your machine computes the fingerprint and sends only that; your audio is never uploaded.
@@ -36,7 +36,7 @@ SetEngine has four areas:
 
 - Works on macOS 12 (Monterey) and later, on both Apple Silicon and Intel Macs. It is one download for both.
 - Nothing else to install. yt-dlp, ffmpeg and a small JavaScript runtime are inside the app, and SetEngine keeps its yt-dlp up to date by itself.
-- Spotify links are the one exception: they need [spotdl](https://github.com/spotDL/spotify-downloader), which the app can't include. SetEngine tells you how to add it the first time you paste a Spotify link. Everything else works without it.
+- Spotify links work too. If you happen to have [spotdl](https://github.com/spotDL/spotify-downloader) installed SetEngine uses it, but you don't need it.
 
 ### The first time you open it
 
@@ -71,7 +71,7 @@ The setup script checks Node.js (18 or newer), installs the app's dependencies, 
 | yt-dlp  | **yes**  | Downloads audio from YouTube                       |
 | ffmpeg  | **yes**  | Converts downloads to MP3 and reads audio for BPM and key detection |
 | aria2c  | optional | Faster downloads                                   |
-| spotdl  | optional | Spotify downloads                                  |
+| spotdl  | optional | Spotify downloads (without it, Spotify links are matched on YouTube) |
 
 Missing tools? The setup script prints the exact install commands for your platform. Once everything is green:
 

@@ -21,6 +21,16 @@
 //            longer Tidal playlist comes back as its first 50 — reported via
 //            `total`, never silently.
 //
+//   Spotify — only read when spotdl isn't installed (it isn't bundled). The
+//            Web API wants a client token; the embed player at
+//            open.spotify.com/embed/<type>/<id> server-renders a __NEXT_DATA__
+//            blob with the title, artists, length and cover, and the rows of
+//            an album / playlist / artist's top tracks. It lists at most 100
+//            rows (measured: a 150-track playlist listed 100), so the real
+//            count is read from the page's music:song_count — which Spotify
+//            only server-renders for link-preview crawlers — and a longer
+//            playlist reports `total`, never silently stopping short.
+//
 // Every lookup returns the same shape:
 //   { title, total, tracks: [{ url, title, artist, album, durationSec,
 //                              trackNumber, coverUrl }] }
@@ -243,10 +253,133 @@ async function fetchTidalCollection(cls, url, fetchImpl) {
   };
 }
 
-// ── Entry point ──────────────────────────────────────────────────────────
+// ── Spotify ──────────────────────────────────────────────────────────────
+
+// The user agent link previews are fetched with. Spotify's own pages render
+// their metadata client-side for browsers and server-side for this.
+const PREVIEW_AGENT = 'facebookexternalhit/1.1';
+
+async function spotifyEmbed(type, id, fetchImpl) {
+  const res = await request(`https://open.spotify.com/embed/${type}/${id}`, fetchImpl, 'text/html');
+  if (res.status === 404) throw new Error('Spotify has nothing at that link (removed, or not public)');
+  if (!res.ok) throw new Error(`Spotify answered HTTP ${res.status}`);
+  const html = await res.text();
+  const m = /<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/.exec(html);
+  let data = null;
+  try { data = m && JSON.parse(m[1]); } catch (_) { /* handled below */ }
+  const props = data && data.props && data.props.pageProps;
+  // A missing id answers 200 with a "Page not found" payload instead of an entity.
+  if (props && props.status === 404) throw new Error('Spotify has nothing at that link (removed, or not public)');
+  const entity = props && props.state && props.state.data && props.state.data.entity;
+  if (!entity) throw new Error("Spotify's page for that link couldn't be read");
+  return entity;
+}
+
+/** The largest image Spotify lists for an entity. */
+function spotifyCover(entity) {
+  const vi = entity.visualIdentity && entity.visualIdentity.image;
+  const ca = entity.coverArt && entity.coverArt.sources;
+  const imgs = (Array.isArray(vi) ? vi : Array.isArray(ca) ? ca : []).filter((i) => i && i.url);
+  imgs.sort((a, b) => (Number(b.maxWidth || b.width) || 0) - (Number(a.maxWidth || a.width) || 0));
+  return imgs.length ? imgs[0].url : '';
+}
 
 /**
- * Read what a Deezer / Tidal link names.
+ * Spotify names a version after a dash — "Body On Me - ADULT Remix",
+ * "Never Gonna Give You Up - 2022 Remaster" — where every other catalogue and
+ * nearly every upload brackets it. The matcher reads versions from brackets, so
+ * the dash form made it refuse the right upload as "wrong version" (measured:
+ * every "(Cake Mix)" upload for "… - Cake Mix"). Spotify always uses the LAST
+ * " - " for this, so that one is rewritten.
+ */
+function spotifyTitle(s) {
+  const t = String(s || '').trim();
+  const at = t.lastIndexOf(' - ');
+  if (at <= 0) return t;
+  const version = t.slice(at + 3).trim();
+  return version ? `${t.slice(0, at).trim()} (${version})` : t;
+}
+
+/** "spotify:track:<id>" → "https://open.spotify.com/track/<id>". */
+const spotifyTrackUrl = (uri) => {
+  const id = String(uri || '').split(':').pop();
+  return /^[A-Za-z0-9]{22}$/.test(id) ? `https://open.spotify.com/track/${id}` : '';
+};
+
+// Row subtitles join artists with ",\u00a0".
+const spotifyArtists = (s) => String(s || '').split(',').map((a) => a.replace(/\u00a0/g, ' ').trim()).filter(Boolean).join(', ');
+
+/** How many tracks the playlist really has, or 0 if the page won't say. */
+async function spotifySongCount(type, id, fetchImpl) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const res = await fetchImpl(`https://open.spotify.com/${type}/${id}`, {
+      signal: ctrl.signal,
+      headers: { 'User-Agent': PREVIEW_AGENT, Accept: 'text/html' },
+    });
+    if (!res.ok) return 0;
+    const m = /<meta[^>]+name=["']music:song_count["'][^>]+content=["'](\d+)["']/i.exec(await res.text());
+    return m ? Number(m[1]) : 0;
+  } catch (_) {
+    return 0;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchSpotify(cls, fetchImpl) {
+  const type = cls.type || 'track';
+  if (type === 'track') {
+    const e = await spotifyEmbed('track', cls.id, fetchImpl);
+    const artists = (Array.isArray(e.artists) ? e.artists : []).map((a) => a && a.name).filter(Boolean);
+    const track = {
+      url: `https://open.spotify.com/track/${cls.id}`,
+      title: spotifyTitle(e.name || e.title),
+      artist: artists.join(', ') || spotifyArtists(e.subtitle),
+      // The embed doesn't name a single track's album.
+      album: '',
+      durationSec: Math.round((Number(e.duration) || 0) / 1000),
+      trackNumber: 0,
+      coverUrl: spotifyCover(e),
+    };
+    if (!track.title) throw new Error("Spotify's page for that track couldn't be read");
+    return { title: track.title, total: 1, tracks: [track] };
+  }
+  const [e, count] = await Promise.all([
+    spotifyEmbed(type, cls.id, fetchImpl),
+    type === 'playlist' ? spotifySongCount(type, cls.id, fetchImpl) : Promise.resolve(0),
+  ]);
+  const isAlbum = type === 'album';
+  const name = String(e.name || e.title || '').trim() || (isAlbum ? 'Album' : 'Playlist');
+  const cover = isAlbum ? spotifyCover(e) : '';
+  const rows = Array.isArray(e.trackList) ? e.trackList : [];
+  const tracks = rows
+    .filter((r) => r && (!r.entityType || r.entityType === 'track'))
+    .map((r, i) => ({
+      url: spotifyTrackUrl(r.uri),
+      title: spotifyTitle(r.title),
+      artist: spotifyArtists(r.subtitle),
+      album: isAlbum ? name : '',
+      durationSec: Math.round((Number(r.duration) || 0) / 1000),
+      trackNumber: isAlbum ? i + 1 : 0,
+      coverUrl: cover,
+    }))
+    .filter((t) => t.url && t.title);
+  if (!tracks.length) throw new Error(`Spotify's page for that ${type} listed no tracks`);
+  // An artist link means their top tracks, which is what the embed lists.
+  const title = type === 'artist' ? `${name} - Top tracks`
+    : isAlbum && e.subtitle ? `${spotifyArtists(e.subtitle)} - ${name}`
+      : name;
+  return { title, total: Math.max(count, tracks.length), tracks };
+}
+
+// ── Entry point ──────────────────────────────────────────────────────────
+
+const CATALOG_LABELS = { spotify: 'Spotify', deezer: 'Deezer', tidal: 'Tidal' };
+
+/**
+ * Read what a Spotify / Deezer / Tidal link names.
  * @param {string} url
  * @param {{ fetchImpl?: typeof fetch }} [opts]
  * @returns {Promise<{ title: string, total: number, tracks: Array<{ url: string, title: string, artist: string, album: string, durationSec: number, trackNumber: number, coverUrl: string }> }>}
@@ -254,10 +387,11 @@ async function fetchTidalCollection(cls, url, fetchImpl) {
  */
 export async function fetchCatalog(url, { fetchImpl = fetch } = {}) {
   const cls = classifyUrl(url);
-  if (!cls || (cls.source !== 'deezer' && cls.source !== 'tidal')) {
-    throw new Error('Not a Deezer or Tidal link');
+  if (!cls || !CATALOG_LABELS[cls.source]) {
+    throw new Error('Not a Spotify, Deezer or Tidal link');
   }
   try {
+    if (cls.source === 'spotify') return await fetchSpotify(cls, fetchImpl);
     if (cls.source === 'deezer') return await fetchDeezer(cls, url, fetchImpl);
     if (cls.kind === 'track') {
       const track = await fetchTidalTrack(cls.id, fetchImpl);
@@ -265,7 +399,7 @@ export async function fetchCatalog(url, { fetchImpl = fetch } = {}) {
     }
     return await fetchTidalCollection(cls, url, fetchImpl);
   } catch (err) {
-    const label = cls.source === 'deezer' ? 'Deezer' : 'Tidal';
+    const label = CATALOG_LABELS[cls.source];
     const msg = (err && err.message) || String(err);
     throw new Error(msg.startsWith(label) ? msg : `Couldn't read that ${label} link: ${msg}`);
   }
