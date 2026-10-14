@@ -12,15 +12,34 @@ export const SOURCE_IDS = ['youtube-music', 'spotify', 'soundcloud', 'deezer', '
 // URL classification
 // -----------------------------------------------------------------------------
 
-const SPOTIFY_URL_RE = /^https?:\/\/open\.spotify\.com\/(track|album|playlist|artist)\/([A-Za-z0-9]{22})/i;
+// Spotify hands out its links in several shapes, and all of them name the
+// same thing:
+//   https://open.spotify.com/track/<id>
+//   https://open.spotify.com/intl-fr/track/<id>?si=…   (any non-English
+//        account's share sheet — the locale segment is what broke these links)
+//   https://open.spotify.com/embed/track/<id>
+//   spotify:track:<id>                                 ("Copy Spotify URI")
+// The scheme and www. are optional, as they are for every other source.
+const SPOTIFY_URL_RE = /^(?:https?:\/\/)?(?:www\.)?open\.spotify\.com\/(?:intl-[a-z]{2}(?:-[a-z]{2,4})?\/)?(?:embed\/)?(track|album|playlist|artist)\/([A-Za-z0-9]{22})(?:[/?#]|$)/i;
+const SPOTIFY_URI_RE = /^spotify:(track|album|playlist|artist):([A-Za-z0-9]{22})$/i;
 
 function classifySpotify(url) {
-  const m = SPOTIFY_URL_RE.exec(url);
+  const m = SPOTIFY_URL_RE.exec(url) || SPOTIFY_URI_RE.exec(url);
   if (!m) return null;
-  const kind = m[1].toLowerCase();
+  const type = m[1].toLowerCase();
   // album/playlist/artist all behave like playlists for download UX — spotdl
   // expands them into a series of tracks. Only /track is a single-item.
-  return { source: 'spotify', kind: kind === 'track' ? 'track' : 'playlist', id: m[2] };
+  return { source: 'spotify', kind: type === 'track' ? 'track' : 'playlist', id: m[2], type };
+}
+
+/**
+ * The plain https://open.spotify.com/<type>/<id> form of any Spotify link, or
+ * null when `url` isn't one. Everything downstream (spotdl, the catalogue
+ * reader, the queue) is handed this form, never the pasted one.
+ */
+export function canonicalSpotifyUrl(url) {
+  const cls = classifySpotify(String(url || '').trim());
+  return cls ? `https://open.spotify.com/${cls.type}/${cls.id}` : null;
 }
 
 function classifyYouTube(url) {
@@ -130,7 +149,10 @@ export function classifyUrl(url) {
 // The mobile apps' share sheets hand out redirectors, not the real address, and
 // the redirector says nothing about what it points at — track or playlist — so
 // it has to be followed before it can be classified.
-const SHORT_LINK_HOSTS = new Set(['on.soundcloud.com', 'link.deezer.com', 'deezer.page.link', 'dzr.page.link']);
+const SHORT_LINK_HOSTS = new Set([
+  'on.soundcloud.com', 'link.deezer.com', 'deezer.page.link', 'dzr.page.link',
+  'spotify.link', 'spotify.app.link',
+]);
 
 export function isShortLink(url) {
   const p = parseHttpUrl(String(url || '').trim());
@@ -161,6 +183,10 @@ export async function expandShortLink(url, { fetchImpl = fetch, timeoutMs = 1000
     const m = body.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i)
       || body.match(/<meta[^>]+property=["']og:url["'][^>]+content=["']([^"']+)["']/i);
     if (m && classifyUrl(m[1])) return m[1];
+    // spotify.link is a Branch redirector whose landing page names the target
+    // in a script rather than a canonical tag.
+    const any = body.match(/https?:\/\/open\.spotify\.com\/(?:intl-[\w-]+\/)?(?:track|album|playlist|artist)\/[A-Za-z0-9]{22}/);
+    if (any && classifyUrl(any[0])) return any[0];
     return raw;
   } catch (_) {
     return raw;

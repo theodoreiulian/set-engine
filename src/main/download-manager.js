@@ -1,7 +1,7 @@
 import pLimit from 'p-limit';
 import crypto from 'node:crypto';
 import path from 'node:path';
-import { classifyUrl, getSource } from './sources.js';
+import { classifyUrl, getSource, canonicalSpotifyUrl } from './sources.js';
 
 const TERMINAL_STATUSES = new Set(['complete', 'error', 'cancelled']);
 
@@ -85,7 +85,10 @@ export default class DownloadManager {
   // field keep working.
   _wrapperFor(source) {
     const engine = (getSource(source) || {}).downloader;
-    if (engine === 'spotdl') return this.spotdl;
+    // spotdl isn't bundled with the app, so most people don't have it. Without
+    // it a Spotify link is read for what it names and matched, exactly like a
+    // Deezer / Tidal one (catalog-sources.js reads Spotify's public embed page).
+    if (engine === 'spotdl') return this._spotdlReady === false && this.catalog ? this.catalog : this.spotdl;
     if (engine === 'match' && this.catalog) return this.catalog;
     return this.ytDlp;
   }
@@ -102,8 +105,27 @@ export default class DownloadManager {
     if (template) this.filenameTemplate = template;
   }
 
+  // Whether spotdl is installed, asked when a Spotify link is queued. Once it's
+  // found it isn't asked again; while it's missing it is re-asked, so
+  // installing spotdl mid-session is picked up on the next link.
+  async _checkSpotdl() {
+    if (this._spotdlReady) return;
+    try {
+      this._spotdlReady = !!(await this.spotdl.getVersion());
+    } catch (_) {
+      this._spotdlReady = false;
+    }
+  }
+
   async addDownload(url, cookiePath, opts = {}) {
     const id = crypto.randomUUID();
+    // A Spotify link is queued in its plain form, whatever shape was pasted
+    // (/intl-fr/…, ?si=…, spotify:track:…).
+    const spotifyUrl = canonicalSpotifyUrl(url);
+    if (spotifyUrl) {
+      url = spotifyUrl;
+      await this._checkSpotdl();
+    }
     const classification = classifyUrl(url) || { source: 'youtube-music', kind: isPlaylistUrl(url) ? 'playlist' : 'track' };
     const source = opts.source || classification.source;
     const isPlaylist = opts.source ? false : classification.kind === 'playlist';

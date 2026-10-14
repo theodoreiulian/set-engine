@@ -1,5 +1,4 @@
 import { showToast } from '../components/toast.js';
-import { showModal } from '../components/modal.js';
 
 // Simple URL-paste download page. The user pastes a YouTube / YouTube Music,
 // Spotify, SoundCloud, Deezer or Tidal link (song, playlist, or album) and the
@@ -128,7 +127,7 @@ export class DownloadPage {
     }
 
     // Classify first so we can (a) reject junk before queueing and (b) give the
-    // user a meaningful "added X" message + a just-in-time spotdl check.
+    // user a meaningful "added X" message.
     let cls = null;
     if (window.setengine.classifyURL) {
       try { cls = await window.setengine.classifyURL(url); } catch (_) { /* fall through */ }
@@ -136,13 +135,6 @@ export class DownloadPage {
     if (!cls || !cls.source) {
       showToast('Not a recognized link — paste a YouTube, Spotify, SoundCloud, Deezer or Tidal URL', 'error');
       return;
-    }
-
-    // Spotify routes through spotdl; surface a clear message if it's missing
-    // rather than letting the queue item fail with a cryptic spawn error.
-    if (cls.source === 'spotify') {
-      const ready = await this.ensureSpotdl();
-      if (!ready) return;
     }
 
     this.downloadBtn.disabled = true;
@@ -163,28 +155,5 @@ export class DownloadPage {
     } finally {
       this.downloadBtn.disabled = false;
     }
-  }
-
-  // Returns true if spotdl is available (or we couldn't check, so let the
-  // download attempt proceed). Returns false after showing an install prompt.
-  async ensureSpotdl() {
-    if (!window.setengine.getSpotdlHealth) return true;
-    let health = null;
-    try { health = await window.setengine.getSpotdlHealth(); } catch (_) { return true; }
-    if (health && health.version) return true;
-
-    await showModal(
-      'spotdl Required for Spotify',
-      `<p>Downloading from Spotify needs <code>spotdl</code>, which SetEngine couldn't find on your PATH.</p>
-      <p>Install it, then try the link again:</p>
-      <ul>
-        <li>Homebrew: <code>brew install spotdl</code></li>
-        <li>pipx: <code>pipx install spotdl</code></li>
-        <li>pip: <code>pip install -U spotdl</code></li>
-      </ul>
-      <p style="color: var(--text-secondary); font-size: 12px; margin-top: 12px;">Links from every other source download without spotdl.</p>`,
-      ['OK']
-    );
-    return false;
   }
 }

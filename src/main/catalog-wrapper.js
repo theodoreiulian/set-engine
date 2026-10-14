@@ -1,5 +1,6 @@
 // =============================================================================
-// catalog-wrapper.js — the "engine" for Deezer and Tidal links.
+// catalog-wrapper.js — the "engine" for Deezer and Tidal links, and for
+// Spotify links when spotdl isn't installed.
 //
 // Same surface as YtDlpWrapper / SpotdlWrapper (`getTrackInfo`,
 // `getPlaylistInfo`, `download` → EventEmitter with progress / complete / error

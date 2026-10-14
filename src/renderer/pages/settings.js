@@ -109,7 +109,7 @@ export class SettingsPage {
     try {
       const health = await window.setengine.getSpotdlHealth();
       if (!health || !health.version) {
-        versionEl.textContent = 'spotdl not detected on PATH (required only for Spotify downloads).';
+        versionEl.textContent = 'spotdl not installed — Spotify links are matched on YouTube instead (installing spotdl is optional).';
         versionEl.style.color = '';
       } else if (health.outdated === true) {
         versionEl.textContent = `spotdl ${health.version} — outdated (minimum ${health.recommendedMin}).`;
