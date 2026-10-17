@@ -494,7 +494,8 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
   // across renderer navigation, and each owns a private cache dir. The manager
   // broadcasts `extract:jobs-update` (full list) and `extract:job-progress`
   // (per-job ticks); these handlers just create / cancel / delete / list jobs.
-  ipcMain.handle('extract:start', (event, url) => extractionManager.addJob(url));
+  ipcMain.handle('extract:start', async (event, url) =>
+    extractionManager.addJob(await expandShortLink(url, { fetchImpl: netFetch })));
   ipcMain.handle('extract:cancel', (event, id) => extractionManager.cancelJob(id));
   ipcMain.handle('extract:delete', (event, id) => extractionManager.deleteJob(id));
   ipcMain.handle('extract:jobs', () => extractionManager.getJobs());

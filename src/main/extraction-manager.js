@@ -16,7 +16,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { rm } from 'node:fs/promises';
 import { app } from 'electron';
-import { classifyUrl } from './sources.js';
+import { classifyExtractionUrl } from './sources.js';
 import { extractSet } from './set-extractor.js';
 
 // How many extractions may scan/download at once. Extra jobs sit in `queued`
@@ -50,17 +50,17 @@ export default class ExtractionJobManager {
   // friendly messages.
   addJob(url) {
     if (typeof url !== 'string' || !url.trim()) {
-      return { success: false, error: 'Paste a YouTube link to a DJ set.' };
+      return { success: false, error: 'Paste a YouTube or SoundCloud link to a DJ set.' };
     }
-    const cls = classifyUrl(url);
-    if (!cls || cls.source !== 'youtube-music') {
-      return { success: false, error: 'That doesn\'t look like a YouTube link. Set Extraction works with YouTube / YouTube Music URLs.' };
+    const cls = classifyExtractionUrl(url);
+    if (!cls) {
+      return { success: false, error: 'Paste a link to one DJ-set recording on YouTube, YouTube Music, or SoundCloud. Playlists and profiles aren\'t supported.' };
     }
 
     const id = crypto.randomUUID();
     const job = {
       id,
-      url: url.trim(),
+      url: /^https?:\/\//i.test(url.trim()) ? url.trim() : `https://${url.trim()}`,
       title: url.trim(),       // replaced with the set title once info loads
       status: 'queued',        // queued | running | done | error | cancelled
       phase: null,             // info | downloading | scanning | merging | caching | done

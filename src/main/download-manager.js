@@ -16,9 +16,8 @@ const MAX_CONCURRENT_DOWNLOADS = 5;
 /**
  * Decide if a URL should be downloaded as a playlist. Defers to the source
  * registry's URL classifier so every source shares one entry point.
- * Watch pages are songs even when the URL carries a `list=` parameter — that
- * list is usually the auto-generated mix/radio (RDAMVM…) which yt-dlp can't
- * enumerate and produces an empty playlist.
+ * Album playback links (OLAK…) expand to the album. Other watch-page list
+ * parameters usually name a mix/radio and keep the download to one song.
  */
 export function isPlaylistUrl(url) {
   const cls = classifyUrl(url);
@@ -31,9 +30,8 @@ export function isPlaylistUrl(url) {
 
 /**
  * Strip the `list=` query parameter from a /watch URL so yt-dlp treats it as a
- * single video rather than the start of a playlist/album. YouTube Music album
- * pages use /watch?v=…&list=OLAK5uy_… where the list param points to the full
- * album; without stripping it, yt-dlp enumerates and downloads every track.
+ * single video rather than a radio/playlist. Album links are classified as
+ * collections before this function is called and keep their list parameter.
  */
 export function normalizeWatchUrl(url) {
   try {
@@ -187,7 +185,7 @@ export default class DownloadManager {
           // Every wrapper exposes getVideoInfo or getTrackInfo with a { title }
           // shape — call whichever exists.
           const info = wrapper.getVideoInfo
-            ? await wrapper.getVideoInfo(item.url, cookiePath)
+            ? await wrapper.getVideoInfo(item.url, cookiePath, { noPlaylist: true })
             : await wrapper.getTrackInfo(item.url, cookiePath);
           item.title = info.title || item.url;
           this._broadcast();
@@ -218,6 +216,9 @@ export default class DownloadManager {
       if (entry.url) return entry.url;
       if (item.source === 'spotify') {
         return `https://open.spotify.com/track/${entry.id}`;
+      }
+      if (item.source === 'soundcloud') {
+        return `https://api.soundcloud.com/tracks/${entry.id}`;
       }
       return `https://www.youtube.com/watch?v=${entry.id}`;
     };
@@ -310,6 +311,7 @@ export default class DownloadManager {
         cookiePath,
         bitrate: this.bitrate,
         filenameTemplate: item._filenameTemplate || this.filenameTemplate,
+        noPlaylist: true,
       });
       item._cancel = dl.cancel;
 

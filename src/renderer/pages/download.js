@@ -7,7 +7,7 @@ import { showToast } from '../components/toast.js';
 // auto-detected from the URL via the main-process classifier — the same one the
 // download manager uses — so a single box handles everything.
 // Sources where a "playlist"-shaped link may just as well be an album.
-const ALBUM_SOURCES = new Set(['spotify', 'deezer', 'tidal']);
+const ALBUM_SOURCES = new Set(['youtube-music', 'spotify', 'soundcloud', 'deezer', 'tidal']);
 
 export class DownloadPage {
   constructor(app) {
