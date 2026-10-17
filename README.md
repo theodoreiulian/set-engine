@@ -36,6 +36,7 @@ SetEngine has four areas:
 
 - Works on macOS 12 (Monterey) and later, on both Apple Silicon and Intel Macs. It is one download for both.
 - Nothing else to install. yt-dlp, ffmpeg and a small JavaScript runtime are inside the app, and SetEngine keeps its yt-dlp up to date by itself.
+- It updates itself too. When a new version is out, SetEngine tells you what's new and asks; nothing changes until you click **Update & Restart**.
 - Spotify links work too. If you happen to have [spotdl](https://github.com/spotDL/spotify-downloader) installed SetEngine uses it, but you don't need it.
 
 ### The first time you open it
@@ -50,7 +51,14 @@ On macOS 12–14 you can instead right-click the app and choose **Open**. After 
 
 ### Updating
 
-Download the new `SetEngine.dmg` and drag it onto Applications again, replacing the old copy. Your settings are kept.
+You don't need to download anything again. SetEngine checks for a new version when it opens and every hour while it runs. When there is one, it shows you what changed and asks:
+
+- **Update & Restart** downloads the new version, checks it, and restarts into it, usually within a minute. Your settings, downloads and library are kept. If you have downloads running, it asks before restarting.
+- **Later** closes the prompt. An **Update available** button stays in the sidebar until you're ready, and **Settings → Updates** can check by hand.
+
+If a new version ever fails to start, SetEngine puts the previous one back by itself and tells you. Updates don't need the "Open Anyway" step; that's only for the very first install.
+
+SetEngine 1.0.1 and earlier can't update themselves. If you have one of those, download `SetEngine.dmg` once more and drag it onto Applications, replacing the old copy. From then on it keeps itself current.
 
 ## Run from source (Windows, Linux, or development)
 
@@ -89,14 +97,17 @@ This produces `out/make/SetEngine.dmg`, the same file the releases page serves. 
 
 The install window's artwork lives in `assets/dmg/`. To change it, edit `scripts/icon/make-dmg-background.mjs` (or the positions in `assets/dmg/layout.json`) and run `node scripts/icon/make-dmg-background.mjs`.
 
-To publish a release, push a tag that matches the version in `package.json`. The workflow in `.github/workflows/release.yml` builds the installer and attaches it to a GitHub Release:
+`npm run install-app` is the shortcut for your own machine: it builds for your Mac's architecture only and copies the app straight into `/Applications`. That copy is a snapshot of your checkout and doesn't update itself; install the DMG instead if you want to follow releases.
 
-```bash
-npm version 1.0.1
-git push --follow-tags
-```
+### Releases
 
-`npm run install-app` is the shortcut for your own machine: it builds for your Mac's architecture only and copies the app straight into `/Applications`.
+**Every merge to `master` is a release.** The workflow in `.github/workflows/release.yml` builds the app, publishes a GitHub Release with `SetEngine.dmg` (for new users), `SetEngine-mac.zip` and `latest-mac.json` (what installed copies update from), and every installed copy offers the update to its user within the hour. Nobody bumps a version or pushes a tag:
+
+- The version is `MAJOR.MINOR` from `package.json` plus the number of commits, so it goes up by itself. Change `MAJOR.MINOR` in `package.json` when a release deserves it.
+- The release notes users see under "What's new" are the commit subjects since the last release. With squash merges that is one PR title per line, so title PRs for the people using the app.
+- Merges that only touch the website, Markdown files or the recognition harness don't publish anything.
+
+The in-app updater is in `src/main/app-updater.js`; [CLAUDE.md](CLAUDE.md#self-update--every-merge-to-master-ships) explains how it swaps the app safely without a Developer ID and how to test an update locally without publishing one.
 
 ### Signing
 
@@ -154,6 +165,7 @@ Key modules:
 - `key-bpm-detector.js` / `audio-analyzer.js` / `dsp.js`: offline BPM and key detection and feature extraction
 - `set-maker.js`: harmonic-mixing setlist algorithm
 - `sources.js`: URL classification. `stream-resolver.js`: remote audio preview protocol
+- `app-updater.js` / `update-feed.js`: SetEngine's own updates: check the release manifest, then download, verify and swap in the new app when the user says so
 
 See [CLAUDE.md](CLAUDE.md) for detailed architecture notes.
 

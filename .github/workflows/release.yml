@@ -1,25 +1,46 @@
-# Builds the macOS installer and attaches it to a GitHub Release.
+# Every merge to master ships: this builds the macOS app, publishes it as a
+# GitHub Release, and every installed copy offers it to its user within the
+# hour (src/main/app-updater.js). Nobody edits a version number or pushes a tag.
 #
-# Push a tag that matches package.json's version to publish:
-#   npm version 1.0.1 && git push --follow-tags
+# A release carries three files:
+#   SetEngine.dmg       what new users download — the site and README link to
+#                       https://github.com/<owner>/<repo>/releases/latest/download/SetEngine.dmg
+#   SetEngine-mac.zip   the same app, zipped; what installed copies download
+#   latest-mac.json     the manifest installed copies check (version, SHA-256, notes)
 #
-# The result is one file, SetEngine.dmg, at a stable address:
-#   https://github.com/<owner>/<repo>/releases/latest/download/SetEngine.dmg
+# The version is MAJOR.MINOR from package.json plus the commit count
+# (scripts/release/version.mjs), and the release notes are the commit subjects
+# since the last release — on master, one PR title per line. So a PR's title is
+# what users read under "What's new".
 #
-# The build is ad-hoc signed (no Developer ID), so first launch needs the
-# "Open Anyway" step described in the README. Signing and notarization are
-# wired up in forge.config.js but have to be run from a machine that holds the
-# certificate — see "Signing" in the README.
+# The build is ad-hoc signed (no Developer ID), so a NEW install needs the
+# "Open Anyway" step in the README once. Updates don't: the app downloads them
+# itself, so they are never quarantined.
 name: Release (macOS)
 
 on:
   push:
-    tags: ['v*']
-  # Manual runs build the installer and keep it as a workflow artifact only.
+    branches: [master]
+    # Changes that can't affect the app don't publish a release (or prompt every
+    # user to restart for nothing). A push mixing these with code still releases.
+    paths-ignore:
+      - 'site/**'
+      - '**/*.md'
+      - 'scripts/eval/**'
+      - 'LICENSE'
+  # Manual runs on master publish like a push; on any other branch they build
+  # and keep the files as a workflow artifact only.
   workflow_dispatch:
 
 permissions:
   contents: write
+
+# One release at a time, in order. A merge landing mid-build waits its turn
+# rather than racing it for the next version number; if several land, only the
+# newest waits, and it contains the others.
+concurrency:
+  group: release-macos
+  cancel-in-progress: false
 
 jobs:
   mac:
@@ -27,43 +48,74 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The version is a commit count and the notes come from the log
+          # since the last tag, so this needs the whole history and every tag.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
 
-      - name: Check the tag matches package.json
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Work out the version
+        id: version
+        # Not piped through tee: the default shell has no pipefail, and a
+        # failure here must stop the run rather than skip every step after it.
         run: |
-          version="v$(node -p "require('./package.json').version")"
-          if [ "$version" != "$GITHUB_REF_NAME" ]; then
-            echo "Tag $GITHUB_REF_NAME does not match package.json ($version)." >&2
-            exit 1
-          fi
+          node scripts/release/version.mjs > "$RUNNER_TEMP/version.txt"
+          cat "$RUNNER_TEMP/version.txt" | tee -a "$GITHUB_OUTPUT"
 
       - run: npm ci
+        if: steps.version.outputs.released == 'false'
+
+      - name: Stamp the version
+        if: steps.version.outputs.released == 'false'
+        run: npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --allow-same-version
 
       - name: Verify first-launch installer artwork
+        if: steps.version.outputs.released == 'false'
         run: npm run verify:dmg-artwork
 
       - name: Build SetEngine.dmg
+        if: steps.version.outputs.released == 'false'
+        env:
+          # Baked into the build (vite.main.config.mjs): where it checks for the
+          # next release. Without it the app would never update itself.
+          SETENGINE_UPDATE_FEED: https://github.com/${{ github.repository }}/releases/latest/download/latest-mac.json
         run: npm run dist:mac
 
+      - name: Build the update (zip + manifest)
+        if: steps.version.outputs.released == 'false'
+        run: node scripts/release/make-update.mjs --version "${{ steps.version.outputs.version }}" --repo "${{ github.repository }}"
+
       - uses: actions/upload-artifact@v4
+        if: steps.version.outputs.released == 'false'
         with:
-          name: SetEngine-macOS
-          path: out/make/SetEngine.dmg
+          name: SetEngine-macOS-${{ steps.version.outputs.version }}
+          path: |
+            out/make/SetEngine.dmg
+            out/make/SetEngine-mac.zip
+            out/make/latest-mac.json
           if-no-files-found: error
 
+      # Uploaded as a draft and published only once all three files are there:
+      # releases/latest switches to this release the moment it is published, and
+      # an installed app reading latest-mac.json before the zip existed would
+      # fail its update.
       - name: Publish the release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.version.outputs.released == 'false' && github.ref == 'refs/heads/master'
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: v${{ steps.version.outputs.version }}
         run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" out/make/SetEngine.dmg --clobber
-          else
-            gh release create "$GITHUB_REF_NAME" out/make/SetEngine.dmg \
-              --title "SetEngine $GITHUB_REF_NAME" --generate-notes
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # A draft left by a run that failed half-way.
+            gh release delete "$TAG" --yes --cleanup-tag
           fi
+          gh release create "$TAG" \
+            out/make/SetEngine.dmg out/make/SetEngine-mac.zip out/make/latest-mac.json \
+            --draft --target "$GITHUB_SHA" \
+            --title "SetEngine ${{ steps.version.outputs.version }}" \
+            --notes-file out/make/release-notes.md
+          gh release edit "$TAG" --draft=false --latest

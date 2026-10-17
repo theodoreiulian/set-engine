@@ -111,4 +111,21 @@ contextBridge.exposeInMainWorld('setengine', {
   getYtdlpHealth: () => ipcRenderer.invoke('ytdlp:health'),
   updateSpotdl: () => ipcRenderer.invoke('spotdl:update'),
   getSpotdlHealth: () => ipcRenderer.invoke('spotdl:health'),
+
+  // ── SetEngine updates ─────────────────────────────────────────────
+  // Main checks for a newer release by itself and broadcasts `update:state`;
+  // `installUpdate` (the UPDATE & RESTART button) is the only thing that
+  // downloads one. `restartToUpdate` confirms a restart that would stop
+  // running downloads or extractions.
+  getUpdateState: () => ipcRenderer.invoke('update:get-state'),
+  checkForUpdates: () => ipcRenderer.invoke('update:check'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+  restartToUpdate: () => ipcRenderer.invoke('update:restart'),
+  openUpdatePage: () => ipcRenderer.invoke('update:open-page'),
+  reportLaunched: () => ipcRenderer.invoke('update:launched'),
+  onUpdateState: (cb) => {
+    const handler = (_e, data) => cb(data);
+    ipcRenderer.on('update:state', handler);
+    return () => ipcRenderer.removeListener('update:state', handler);
+  },
 });
