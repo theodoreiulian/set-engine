@@ -1,4 +1,4 @@
-import { ipcMain, dialog, net } from 'electron';
+import { ipcMain, dialog, net, shell } from 'electron';
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -82,7 +82,7 @@ async function resolveExisting(p) {
   return null;
 }
 
-export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, settingsManager, extractionManager) {
+export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, settingsManager, extractionManager, appUpdater) {
   const netFetch = (...args) => net.fetch(...args);
   // Downloads run unauthenticated. The embedded sign-in browser was removed, so
   // there's no session to harvest cookies from — yt-dlp/spotdl fetch public
@@ -244,6 +244,24 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
     } catch (err) {
       return { success: false, error: err.message };
     }
+  });
+
+  // SetEngine's own updates. Main owns the state (app-updater.js) and pushes it
+  // as `update:state`; nothing is downloaded until `update:install`, which only
+  // ever comes from the user clicking UPDATE & RESTART.
+  ipcMain.handle('update:get-state', () => appUpdater.getState());
+  ipcMain.handle('update:check', () => appUpdater.check({ manual: true }));
+  ipcMain.handle('update:install', () => appUpdater.update());
+  ipcMain.handle('update:restart', () => appUpdater.restartNow());
+  // The renderer has drawn its first page: this version starts properly. The
+  // install script waits for this, and puts the previous version back without it.
+  ipcMain.handle('update:launched', () => appUpdater.markLaunched());
+  // Opens the release page the manifest named — never a URL from the renderer.
+  ipcMain.handle('update:open-page', async () => {
+    const page = appUpdater.getState().page;
+    if (!page || !page.startsWith('https://')) return { success: false };
+    await shell.openExternal(page);
+    return { success: true };
   });
 
   ipcMain.handle('setmaker:build', async (event, payload) => {

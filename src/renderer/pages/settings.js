@@ -4,9 +4,12 @@ export class SettingsPage {
   constructor(app) {
     this.app = app;
     this.container = null;
+    this.unsubscribeUpdate = null;
   }
 
   destroy() {
+    if (this.unsubscribeUpdate) this.unsubscribeUpdate();
+    this.unsubscribeUpdate = null;
     if (this.container) this.container.classList.remove('page-host');
   }
 
@@ -78,6 +81,16 @@ export class SettingsPage {
       <div id="settings-spotdl-version" class="form-helper" style="margin-top: 12px;">Checking spotdl version…</div>`
     ));
 
+    // --- SetEngine's own version + updates ---
+    form.appendChild(this.createFormGroup(
+      'Updates',
+      `<div id="settings-app-version" class="form-helper" style="margin-bottom: 8px;">SetEngine</div>
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <button class="btn-secondary btn-sm" id="settings-check-updates" style="display: none;">CHECK FOR UPDATES</button>
+        <span id="settings-update-status" class="form-helper"></span>
+      </div>`
+    ));
+
     body.appendChild(form);
 
     // --- Save Button ---
@@ -100,6 +113,62 @@ export class SettingsPage {
     this.loadSettings();
     this.loadYtDlpHealth();
     this.loadSpotdlHealth();
+    this.loadUpdateState();
+  }
+
+  async loadUpdateState() {
+    if (!window.setengine || !window.setengine.getUpdateState) return;
+    const button = document.getElementById('settings-check-updates');
+    if (button) button.addEventListener('click', () => this.checkForUpdates());
+    this.unsubscribeUpdate = window.setengine.onUpdateState((state) => this.showUpdateState(state));
+    try {
+      this.showUpdateState(await window.setengine.getUpdateState());
+    } catch (_) { /* leave the placeholder */ }
+  }
+
+  showUpdateState(state, { justChecked = false } = {}) {
+    const versionEl = document.getElementById('settings-app-version');
+    const statusEl = document.getElementById('settings-update-status');
+    const button = document.getElementById('settings-check-updates');
+    if (!state || !versionEl || !statusEl || !button) return;
+    versionEl.textContent = `SetEngine ${state.currentVersion}`;
+    button.style.display = state.enabled ? '' : 'none';
+    button.disabled = state.status === 'checking' || state.status === 'installing';
+
+    let text = '';
+    if (!state.enabled) {
+      text = 'This build doesn\'t update itself. The downloadable Mac app checks for new versions on its own.';
+    } else if (state.status === 'checking') {
+      text = 'Checking…';
+    } else if (state.version) {
+      text = {
+        downloading: `Downloading ${state.version}… ${state.percent || 0}%`,
+        verifying: `Checking ${state.version}…`,
+        ready: `${state.version} is ready — restart to finish.`,
+        installing: 'Restarting…',
+        error: `Updating to ${state.version} failed: ${state.error || 'unknown error'}`,
+      }[state.status] || `SetEngine ${state.version} is available.`;
+    } else if (justChecked && state.checkError) {
+      text = `Couldn't check: ${state.checkError}`;
+    } else if (state.checkedAt && !state.checkError) {
+      text = 'You\'re on the latest version.';
+    } else {
+      text = 'SetEngine checks for new versions by itself.';
+    }
+    statusEl.textContent = text;
+  }
+
+  async checkForUpdates() {
+    const statusEl = document.getElementById('settings-update-status');
+    if (statusEl) statusEl.textContent = 'Checking…';
+    try {
+      const state = await window.setengine.checkForUpdates();
+      this.showUpdateState(state, { justChecked: true });
+      // Asked for it, so show the offer itself, not just a line of text.
+      if (state && state.version && this.app.updatePrompt) this.app.updatePrompt.open();
+    } catch (err) {
+      if (statusEl) statusEl.textContent = `Couldn't check: ${err.message}`;
+    }
   }
 
   async loadSpotdlHealth() {

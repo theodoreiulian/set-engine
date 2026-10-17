@@ -14,6 +14,7 @@ import { registerIpcHandlers } from './main/ipc-handlers.js';
 import { handleStreamRequest } from './main/stream-resolver.js';
 import { isUnderSessionRoot } from './main/session-roots.js';
 import { initBundledTools, usingBundledTools } from './main/bundled-tools.js';
+import AppUpdater, { bundleFromExecPath } from './main/app-updater.js';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -125,7 +126,24 @@ if (app.isPackaged) {
 }
 
 let mainWindow;
-let ytDlp, spotdl, downloadManager, settingsManager, extractionManager;
+let ytDlp, spotdl, downloadManager, settingsManager, extractionManager, appUpdater;
+
+// Injected at build time (vite.main.config.mjs). Only release builds carry one.
+const UPDATE_FEED = typeof SETENGINE_UPDATE_FEED === 'string' ? SETENGINE_UPDATE_FEED : '';
+
+// What restarting into an update would stop. Finished downloads and finished
+// extractions don't count: their files are on disk.
+function runningWork() {
+  let downloads = 0;
+  for (const item of downloadManager ? downloadManager.getQueue() : []) {
+    const items = item.children && item.children.length ? item.children : [item];
+    downloads += items.filter((i) => i.status === 'downloading' || i.status === 'queued').length;
+  }
+  const extractions = extractionManager
+    ? extractionManager.getJobs().filter((j) => j.status === 'running' || j.status === 'queued').length
+    : 0;
+  return { downloads, extractions };
+}
 
 const createWindow = () => {
   mainWindow = new BrowserWindow({
@@ -168,7 +186,26 @@ const createWindow = () => {
   downloadManager.setBitrate(settings.audioQuality);
   downloadManager.setFilenameTemplate(settings.filenameTemplate);
 
-  registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, settingsManager, extractionManager);
+  // SetEngine's own updates (the app, not its tools). Built once: the window
+  // can be re-created on macOS, the updater and its timer must not be.
+  if (!appUpdater) {
+    appUpdater = new AppUpdater({
+      feedUrl: UPDATE_FEED,
+      supported: app.isPackaged && process.platform === 'darwin',
+      currentVersion: app.getVersion(),
+      bundlePath: bundleFromExecPath(process.execPath),
+      userDataPath: app.getPath('userData'),
+      fetch: (...args) => net.fetch(...args),
+      busy: runningWork,
+      quit: () => app.quit(),
+      relaunchArgs: process.argv.slice(1),
+      onState: (state) => {
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update:state', state);
+      },
+    });
+    appUpdater.start();
+  }
+  registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, settingsManager, extractionManager, appUpdater);
 
   // Detect aria2c first (cheap `which` call) so the very first download already
   // knows whether to route through the accelerator. Fire-and-forget — if a

@@ -7,6 +7,7 @@ import { SorterPage } from './pages/sorter.js';
 import { SettingsPage } from './pages/settings.js';
 import { showModal } from './components/modal.js';
 import { runYtdlpUpdateFlow } from './tool-update.js';
+import { UpdatePrompt } from './update-prompt.js';
 
 const PAGES = {
   download: DownloadPage,
@@ -78,6 +79,14 @@ export class App {
     this.navigateTo('download');
 
     this.setupIpcListeners();
+    // SetEngine's own updates. Not awaited: the prompt waits for any other
+    // modal (the yt-dlp one below) to close before it shows.
+    this.updatePrompt = new UpdatePrompt(this);
+    this.updatePrompt.init();
+    // This version starts: the sidebar and first page rendered without
+    // throwing. Right after an update, the install script is waiting for this,
+    // and puts the previous version back if it never arrives.
+    if (window.setengine && window.setengine.reportLaunched) window.setengine.reportLaunched().catch(() => {});
     await this.checkYtDlpHealth();
   }
 
