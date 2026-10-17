@@ -61,7 +61,7 @@ export class SettingsPage {
         <input type="checkbox" id="settings-use-published">
         <label for="settings-use-published" style="cursor:pointer;">Use the uploader's tracklist when there is one</label>
       </div>
-      <div class="form-helper" style="margin-bottom: 16px;">Many DJ sets already list their tracks — as YouTube chapters, as timestamps in the description, or in a pinned comment. When they do, that list is exact and free, and SetEngine skips downloading and scanning the set entirely. Anything else is identified from the audio.</div>
+      <div class="form-helper" style="margin-bottom: 16px;">YouTube and SoundCloud sets can list tracks with timestamps in the description. YouTube chapters and comment tracklists are also supported. SetEngine checks published lists against the audio and identifies missing tracks by listening.</div>
       <div class="form-helper" style="margin-bottom: 16px;">Identification needs no account and no API key, and costs nothing. Your machine computes the fingerprint and sends only that — your audio is never uploaded.</div>
       <div style="margin-top: 16px;">
         <div class="form-helper" style="margin-bottom: 6px;">How much evidence to require (0–100)</div>

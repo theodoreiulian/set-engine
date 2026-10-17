@@ -1,19 +1,16 @@
 // SetEngine — Published tracklist parsing
 //
 // The cheapest, most accurate tracklist is the one the uploader already wrote.
-// A large share of DJ sets on YouTube ship a complete tracklist as chapter
-// markers or as timestamped lines in the description, and yt-dlp already hands
-// both to us in the JSON `getVideoInfo()` returns — so when it's there we can
-// skip the audio download *and* recognition entirely and still get a better
-// answer than any fingerprinter: correct remix names, correct spelling, correct
-// order, exact start times, no requests, no cost.
+// YouTube and SoundCloud sets often carry timestamped descriptions; YouTube
+// also supplies chapters and, on a separate pass, comments. yt-dlp hands these
+// to us in the JSON `getVideoInfo()` returns. Published lists preserve remix
+// names, spelling, order and start times that recognition alone can miss.
 //
 // This module is pure (info object in, tracklist out) so it can be exercised
 // against real `--dump-json` payloads without touching the network.
 //
-// Deliberately NOT parsed here: top comments. They very often hold a tracklist
-// too, but they need a second yt-dlp pass (`--write-comments`, slow on big
-// videos) and they're far noisier — a v2 idea, not a v1 one.
+// YouTube comments need a second yt-dlp pass (`--write-comments`); SoundCloud
+// comments are not supplied by its extractor.
 
 // "Artist - Title", with any dash and whitespace on AT LEAST ONE side.
 //

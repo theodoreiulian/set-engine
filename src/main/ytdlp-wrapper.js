@@ -366,7 +366,7 @@ export default class YtDlpWrapper {
    * @param {string} [opts.filenameTemplate] — yt-dlp output template (default: %(title)s)
    * @returns {string[]}
    */
-  buildSongArgs({ url, outputFolder, bitrate = 320, cookiePath, filenameTemplate = '%(title)s', useAria2c = this.aria2cAvailable }) {
+  buildSongArgs({ url, outputFolder, bitrate = 320, cookiePath, filenameTemplate = '%(title)s', useAria2c = this.aria2cAvailable, noPlaylist = false }) {
     const args = [
       '-x',
       '--audio-format', 'mp3',
@@ -378,6 +378,7 @@ export default class YtDlpWrapper {
       '--extractor-args', 'youtube:player_client=default,web_safari,tv,mweb',
       '--concurrent-fragments', '4',
     ];
+    if (noPlaylist) args.push('--no-playlist');
 
     if (useAria2c) {
       args.push('--downloader', 'aria2c');
@@ -423,13 +424,15 @@ export default class YtDlpWrapper {
    * @param {string} opts.url          — YouTube URL
    * @param {string} [opts.cookiePath] — path to Netscape cookie file
    * @param {boolean} [opts.withComments] — also fetch top-level comments
+   * @param {boolean} [opts.noPlaylist] — keep a video-with-playlist URL to one recording
    * @returns {string[]}
    */
-  buildUrlInfoArgs({ url, cookiePath, withComments }) {
+  buildUrlInfoArgs({ url, cookiePath, withComments, noPlaylist }) {
     const args = [
       '--dump-single-json',
       '--no-download',
     ];
+    if (noPlaylist) args.push('--no-playlist');
 
     // Comments are a separate, much slower pass (a distinct paginated endpoint),
     // so they are opt-in: Set Extraction only asks once chapters and description
@@ -450,7 +453,7 @@ export default class YtDlpWrapper {
   }
 
   async getVideoInfo(url, cookiePath, opts = {}) {
-    const args = this.buildUrlInfoArgs({ url, cookiePath, withComments: opts.withComments });
+    const args = this.buildUrlInfoArgs({ url, cookiePath, withComments: opts.withComments, noPlaylist: opts.noPlaylist });
     return this.executeJson(args, { timeoutMs: opts.timeoutMs || 0, signal: opts.signal || null });
   }
 
@@ -682,6 +685,7 @@ export default class YtDlpWrapper {
         bitrate: options.bitrate || 320,
         filenameTemplate: options.filenameTemplate || '%(title)s',
         useAria2c,
+        noPlaylist: options.noPlaylist,
       });
       inner = this.execute(args, id);
       inner.on('progress', (p) => emitter.emit('progress', p));

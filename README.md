@@ -15,17 +15,17 @@ It uses [yt-dlp](https://github.com/yt-dlp/yt-dlp) under the hood, and [spotdl](
 SetEngine has four areas:
 
 1. **Download.** Paste a link to a song, playlist, or album from YouTube, YouTube Music, Spotify, SoundCloud, Deezer, or Tidal and it downloads MP3s. It works out the source and whether it's a single track or a full list from the link itself.
-2. **Set Extraction** (beta). Paste a link to a recorded YouTube DJ set and it identifies the tracks that were played, then lets you download each one or grab the whole set.
+2. **Set Extraction** (beta). Paste a link to a recorded YouTube or SoundCloud DJ set and it identifies the tracks that were played, then lets you download each one or grab the whole set.
 3. **Set Maker.** Analyze a folder of your music for BPM and key, rate your tracks, and build a setlist that's ordered to mix in key. Import and export playlist files.
 4. **Match Maker.** Load in your library and get mixing suggestions for any track you pick. Tier 1 is the same key, Tier 2 is one semitone away, and you choose how far apart the BPMs are allowed to be.
 
 ## Features
 
-- **Paste and download.** Drop a link from YouTube, YouTube Music, Spotify, SoundCloud, Deezer, or Tidal. SetEngine works out whether it's one track or a whole playlist or album.
+- **Paste and download.** Drop a link from YouTube, YouTube Music, Spotify, SoundCloud, Deezer, or Tidal. SetEngine works out whether it's one track or a whole playlist or album. SoundCloud albums and playlists (`/sets/…`), Spotify album links, and YouTube Music album pages or album playback links download the collection track by track.
 - **Spotify too.** Spotify links download from the same box. With spotdl installed it does the work; without it, SetEngine finds and checks the same recording on YouTube itself.
 - **Deezer and Tidal links.** Neither service allows downloads, so SetEngine reads what the link names, finds the same recording on YouTube or SoundCloud, checks the title, artist, version, and length against the link, and downloads that. The file is tagged with the album and cover from the link. A track it can't verify is skipped instead of being replaced with a near match. Tidal playlists are limited to their first 50 tracks, which is all Tidal's public page lists.
 - **Download queue.** Up to 5 downloads run at once, and they go faster when aria2c is installed.
-- **Set Extraction.** Point it at a recorded DJ set and it produces the tracklist, then you download the tracks individually or grab the whole set. It works in two stages: if the uploader already published a tracklist (YouTube chapters or timestamps in the description) SetEngine just uses it — that's exact, instant, and it doesn't even download the set. Otherwise it identifies tracks from the audio — **no API key, no account, no cost.** Your machine computes the fingerprint and sends only that; your audio is never uploaded.
+- **Set Extraction.** Paste a link to one recorded DJ set on YouTube or SoundCloud (including SoundCloud mobile share links). SetEngine reads timestamped tracklists from the description, plus chapters and comment tracklists on YouTube. It checks complete-looking lists against the audio, identifies missing tracks, and prepares verified individual recordings for preview and download. Playlists and profiles are not supported here. Recognition needs **no API key, no account, no cost.** Your machine computes the fingerprint and sends only that; your audio is never uploaded.
 - **BPM and key detection.** It works out the BPM and key of your local files right on your computer, double-checks the BPM against Deezer's free database, and writes both into the file's tags.
 - **Match Maker.** Pick a track and see what mixes well in key, grouped by how close the keys sit on the Camelot wheel and filtered by how far apart the BPMs can be.
 - **Set Maker.** Build setlists where every transition stays in key, star-rate your tracks, and import or export playlist files.
@@ -148,7 +148,7 @@ Key modules:
 - `download-manager.js`: download queue and concurrency (engine chosen per item's source)
 - `extraction-manager.js` + `set-extractor.js`: the Set Extraction job system and per-job pipeline
 - `shazam/`: on-device fingerprinting + the recognition lookup
-- `tracklist-sources.js`: pulls a published tracklist out of YouTube chapters / description
+- `tracklist-sources.js`: pulls a published tracklist out of YouTube chapters / comments and YouTube or SoundCloud descriptions
 - `segmenter.js`: finds the transitions in a set so recognition only probes once or twice per track
 - `track-match.js`: resolves a recognized "Artist Title" to a concrete YouTube URL
 - `key-bpm-detector.js` / `audio-analyzer.js` / `dsp.js`: offline BPM and key detection and feature extraction

@@ -2,13 +2,12 @@
 //
 // Orchestrates DJ-set tracklist extraction end to end:
 //   1. Read the link's info (title + duration) via yt-dlp.
-//   2. If the uploader already published a tracklist (chapters / timestamped
-//      description lines), use it and skip straight to step 5 — it's exact,
-//      free, and means the set never has to be downloaded at all.
-//   3. Otherwise download the audio to a temp dir (128 kbps mono-ish MP3 —
+//   2. Read timestamped descriptions on YouTube / SoundCloud, plus YouTube
+//      chapters, MixesDB and comments. Check whether the list covers the set.
+//   3. Download the audio to a temp dir (128 kbps MP3 —
 //      recognition doesn't need 320, and a smaller file scans faster).
-//   4. Hand the file to the Shazam recognizer, then merge consecutive duplicate
-//      hits into the play-order tracklist.
+//   4. Spot-check complete lists with Shazam, or scan and supplement missing
+//      tracks, then prepare verified individual recordings for download.
 // The temp file is always cleaned up, and the whole flow is cancellable via an
 // AbortSignal. Progress is reported through `onProgress` as { phase, percent }.
 //
@@ -26,6 +25,7 @@ import { lookupByVideoId } from './mixesdb.js';
 import { resolveBestVideo } from './track-match.js';
 import { verifyDownloadedAudio } from './download-verify.js';
 import { mergeTracklists, spotCheckAgreement, identityKey } from './track-merge.js';
+import { classifyExtractionUrl } from './sources.js';
 
 // Ceiling on the optional comment-fetching pass. It paginates a separate,
 // slower endpoint, so it needs a bound — otherwise a stall would hang the job
@@ -106,17 +106,23 @@ async function findDownloaded(tmpDir, id) {
   return path.join(tmpDir, `${id}.mp3`);
 }
 
-export async function extractSet(url, { ytDlp, settings, signal, onProgress, cacheDir } = {}) {
+export async function extractSet(url, { ytDlp, settings = {}, signal, onProgress, cacheDir } = {}) {
   const emit = (data) => { try { if (onProgress) onProgress(data); } catch (_) { /* ignore */ } };
 
   if (!cacheDir) throw new Error('extractSet requires a cacheDir.');
+  const source = classifyExtractionUrl(url)?.source;
+  if (!source) throw new Error('Paste a link to one DJ-set recording on YouTube or SoundCloud.');
 
   emit({ phase: 'info', percent: 0 });
   let info = null;
   try {
-    info = await ytDlp.getVideoInfo(url);
+    info = await ytDlp.getVideoInfo(url, null, { noPlaylist: true, timeoutMs: 60000, signal });
   } catch (err) {
     throw new Error(`Couldn't read that link: ${err.message}`);
+  }
+  if (signal && signal.aborted) throw new Error('Extraction cancelled.');
+  if (!info || info._type === 'playlist' || Array.isArray(info.entries)) {
+    throw new Error('This link is a playlist. Paste the link to one DJ-set recording instead.');
   }
 
   // The cache dir is owned by this job (one private dir per extraction). It is
@@ -267,7 +273,7 @@ export async function extractSet(url, { ytDlp, settings, signal, onProgress, cac
     // else can: a set whose uploader published nothing AND whose records aren't
     // in Shazam's catalog. Tried before comments because it costs a fraction as
     // much — comments paginate a separate, much slower endpoint.
-    if (!found) {
+    if (!found && source === 'youtube-music') {
       emit({ phase: 'info', percent: 7, info: meta });
       try {
         const hit = await lookupByVideoId(info && info.id, splitArtistTitle, { signal });
@@ -283,11 +289,15 @@ export async function extractSet(url, { ytDlp, settings, signal, onProgress, cac
     // valuable one: of six 1-hour-plus sets that published neither chapters nor
     // a description tracklist, all six had a complete tracklist in a heavily
     // upvoted comment. Bounded by a timeout + the job's AbortSignal.
-    if (!found) {
+    // yt-dlp's SoundCloud extractor supplies descriptions, but doesn't fetch
+    // comments. Avoid a duplicate metadata request and YouTube-only lookups;
+    // without a published description, SoundCloud goes straight to recognition.
+    if (!found && source === 'youtube-music') {
       emit({ phase: 'info', percent: 8, info: meta });
       try {
         const withComments = await ytDlp.getVideoInfo(url, null, {
           withComments: true,
+          noPlaylist: true,
           timeoutMs: COMMENT_FETCH_TIMEOUT_MS,
           signal,
         });
@@ -321,7 +331,7 @@ export async function extractSet(url, { ytDlp, settings, signal, onProgress, cac
     // pass), and a promise that rejected in that window with nothing attached
     // would surface as an unhandled rejection.
     const promise = new Promise((resolve, reject) => {
-      const dl = ytDlp.download(url, tmpDir, { bitrate: 128, filenameTemplate: id });
+      const dl = ytDlp.download(url, tmpDir, { bitrate: 128, filenameTemplate: id, noPlaylist: true });
       const onAbort = () => { try { dl.cancel(); } catch (_) { /* gone */ } reject(new Error('Extraction cancelled.')); };
       if (signal) {
         if (signal.aborted) { onAbort(); return; }

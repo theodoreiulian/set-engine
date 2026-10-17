@@ -43,11 +43,19 @@ export function canonicalSpotifyUrl(url) {
 }
 
 function classifyYouTube(url) {
-  if (!/(^https?:\/\/)?([\w-]+\.)?(youtube\.com|youtu\.be|music\.youtube\.com)/i.test(url)) return null;
-  if (/\/playlist\b/i.test(url)) return { source: 'youtube-music', kind: 'playlist' };
-  if (/\/watch\b/i.test(url)) return { source: 'youtube-music', kind: 'track' };
-  if (/youtu\.be\//i.test(url)) return { source: 'youtube-music', kind: 'track' };
-  if (/[?&]list=/.test(url)) return { source: 'youtube-music', kind: 'playlist' };
+  const p = parseHttpUrl(url);
+  if (!p || !/^(?:[\w-]+\.)?youtube\.com$|^youtu\.be$/.test(p.host)) return null;
+  const u = new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`);
+  const list = u.searchParams.get('list') || '';
+  // YouTube Music album pages and their Play/Share links name the same
+  // collection. OLAK is an album; RD/PL context on a song is not an album.
+  if ((p.segments[0] === 'browse' && /^(?:MPRE|OLAK5uy_)/.test(p.segments[1] || ''))
+    || /^OLAK5uy_/.test(list)) return { source: 'youtube-music', kind: 'playlist', type: 'album' };
+  if (p.segments[0] === 'playlist') return { source: 'youtube-music', kind: 'playlist' };
+  if (p.segments[0] === 'watch' || (p.host === 'youtu.be' && p.segments.length)) {
+    return { source: 'youtube-music', kind: 'track' };
+  }
+  if (list) return { source: 'youtube-music', kind: 'playlist' };
   return null;
 }
 
@@ -140,6 +148,21 @@ export function classifyUrl(url) {
   const u = url.trim();
   return classifySpotify(u) || classifyYouTube(u) || classifySoundCloud(u)
     || classifyDeezer(u) || classifyTidal(u) || null;
+}
+
+// Extraction needs one continuous recording, not a profile or playlist (a
+// SoundCloud URL containing /sets/ is a playlist, despite the name).
+export function classifyExtractionUrl(url) {
+  const cls = classifyUrl(url);
+  const p = parseHttpUrl(String(url || '').trim());
+  if (!p || !cls) return null;
+  if (cls.source === 'soundcloud') return cls.kind === 'track' ? cls : null;
+  if (cls.source === 'youtube-music'
+    && (p.segments[0] === 'watch' || p.host === 'youtu.be')) {
+    // Extraction always listens to one recording, even in an album context.
+    return { source: cls.source, kind: 'track' };
+  }
+  return null;
 }
 
 // -----------------------------------------------------------------------------

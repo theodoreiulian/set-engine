@@ -1,6 +1,6 @@
 import { showToast } from '../components/toast.js';
 
-// Set Extraction — paste a YouTube DJ-set link and get the tracklist of tracks
+// Set Extraction — paste a YouTube or SoundCloud DJ-set link and get the tracklist of tracks
 // identified in it. Each extraction is its own *job* owned by the main process (the source
 // of truth): jobs run in parallel, keep running while you navigate away, and
 // each owns a private cache. This page is a pure view — a list of job cards plus
@@ -34,7 +34,7 @@ function escapeHtml(s) {
 // neither. All three beat recognition, but the user should know which they have.
 const SOURCE_LABELS = {
   'published-chapters': ['the uploader\'s own tracklist', 'chapters'],
-  'published-description': ['the uploader\'s own tracklist', 'video description'],
+  'published-description': ['the uploader\'s own tracklist', 'description'],
   'published-comments': ['a listener\'s tracklist', 'top comment'],
   'published-mixesdb': ['a community tracklist', 'MixesDB'],
 };
@@ -296,11 +296,11 @@ export class ExtractPage {
       <label class="form-label" for="extract-url-input">Paste a DJ set link</label>
       <div class="url-download-row">
         <input type="text" class="input-lg" id="extract-url-input"
-               placeholder="YouTube link to a DJ set"
+               placeholder="YouTube or SoundCloud link to a DJ set"
                spellcheck="false" autocomplete="off">
         <button class="btn" id="extract-start-btn">EXTRACT</button>
       </div>
-      <div class="form-helper">Each extraction runs as its own job — start several and they run in parallel.</div>
+      <div class="form-helper">Paste one set recording, rather than a playlist or profile. Each extraction runs as its own job — start several and they run in parallel.</div>
     `;
     this.body.appendChild(urlGroup);
 
