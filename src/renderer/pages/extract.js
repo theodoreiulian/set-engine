@@ -41,11 +41,12 @@ const SOURCE_LABELS = {
 
 // A recognized row the audio didn't fully corroborate. It is shown rather than
 // dropped — dropping these is precisely what made a half-empty tracklist read as
-// a finished one — but it is badged, and DOWNLOAD WHOLE SET leaves it out, so a
-// guess is never written to disk under a confident-looking filename by accident.
-// The per-row download button still works for anyone who listens and agrees.
+// a finished one — but it is badged, so the user knows which downloaded files to
+// listen to before trusting them. DOWNLOAD WHOLE SET includes it: it means every
+// identified track, and a silently missing file is easier to overlook in a crate
+// than a badged one is to check.
 const UNCERTAIN_TIP = 'Heard in the audio, but not corroborated well enough to be sure. '
-  + 'Play it before you download it — DOWNLOAD WHOLE SET skips these.';
+  + 'Play it to check it is the right recording.';
 
 const isUncertain = (t) => t && t.confidence === 'uncertain';
 
@@ -115,8 +116,7 @@ function sourceNoteHtml(job) {
   const unsure = (job.tracks || []).filter(isUncertain).length;
   if (unsure) {
     notes.push(`${unsure} track${unsure === 1 ? ' is' : 's are'} marked uncertain — heard in the audio, `
-      + 'but not corroborated well enough to be sure. Play them before you keep them; '
-      + 'DOWNLOAD WHOLE SET leaves them out.');
+      + 'but not corroborated well enough to be sure. Play them before you keep them.');
   }
   return notes.map((n) => `<div class="form-helper" style="margin-top:4px;">${n}</div>`).join('');
 }
@@ -720,18 +720,12 @@ export class ExtractPage {
     if (this.dlAllBtn) this.dlAllBtn.disabled = true;
 
     try {
-      // Uncertain rows are deliberately excluded. `download:tracks` stamps the
-      // EXPECTED artist and title onto whatever audio it fetches, so shipping a
-      // row we aren't sure of produces a correctly-labelled wrong file — the
-      // worst outcome this feature has. Send the indices too, so the job's
-      // per-row ✔ state still lines up with the full tracklist.
-      const picked = [];
-      (job.tracks || []).forEach((t, i) => { if (!isUncertain(t)) picked.push({ t, i }); });
-      const held = job.tracks.length - picked.length;
-      if (!picked.length) {
-        showToast('Every track here is uncertain — play them and download the ones you want.', 'warning');
-        return;
-      }
+      // Every identified row, uncertain ones included — they are badged in the
+      // list, and the toast counts them so the user knows to listen to those.
+      // Indices are still sent so the job's per-row ✔ state lines up with the
+      // full tracklist.
+      const picked = (job.tracks || []).map((t, i) => ({ t, i }));
+      const unsure = picked.filter((p) => isUncertain(p.t)).length;
       const res = await window.setengine.downloadTracks({
         tracks: picked.map((p) => p.t),
         indices: picked.map((p) => p.i),
@@ -743,7 +737,7 @@ export class ExtractPage {
         const ok = picked.length - skipped;
         const notes = [];
         if (skipped) notes.push(`${skipped} skipped (no match)`);
-        if (held) notes.push(`${held} uncertain not downloaded`);
+        if (unsure) notes.push(`${unsure} uncertain — play to check`);
         showToast(
           notes.length ? `Downloaded ${ok} tracks · ${notes.join(' · ')}` : `Downloaded ${ok} tracks`,
           notes.length ? 'warning' : 'success',
