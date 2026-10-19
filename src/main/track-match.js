@@ -65,8 +65,8 @@ const MAX_TRACK_SEC = 900;
 const EXPECTED_DURATION_TOLERANCE_SEC = 15;
 
 // How many candidates we're willing to pay a metadata fetch for, per track, and
-// how long the whole verification phase may take. Both matter: a set can be 60
-// tracks, and without a wall-clock bound a few slow lookups would stall the
+// how long each provider's metadata verification may take. Both matter: a set can be 60
+// tracks, and without a time bound a few slow lookups would stall the
 // caching phase. Running out of budget means "unverified", which means skip —
 // never "accept the next one and hope".
 const MAX_VERIFICATIONS = 5;
@@ -173,9 +173,11 @@ export function coreTitle(raw) {
  * ordinary release. "(Extended Mix)" → '' (same record); "(ADULT Remix)" →
  * "adult" (a different record that must not be substituted).
  */
+const normalizeVersionLabel = (raw) => String(raw || '').replace(/\brmx\b/gi, 'remix');
+
 export function versionKey(raw) {
   const out = [];
-  const s = String(raw || '');
+  const s = normalizeVersionLabel(raw);
   for (const m of s.matchAll(VERSION_MARKER)) {
     for (const t of toks(m[0])) if (!GENERIC_VERSION_WORDS.has(t)) out.push(t);
   }
@@ -249,6 +251,19 @@ function titleAgrees(candidateTitles, wantCore, fuzzy = false) {
   });
 }
 
+// Recognizers sometimes include a quoted subtitle that official uploads omit,
+// e.g. Ambulance "Your Life Force Is Running Out!" → Ambulance. Only a trailing
+// quoted phrase after a real base title is optional; artist/version stay strict.
+function withoutQuotedSubtitle(title) {
+  return String(title || '').replace(/^(\S.*?)\s+["“][^"”]+["”](?=\s*(?:[([]|$))/, '$1');
+}
+
+function requestedTitleAgrees(candidateTitles, want, fuzzy) {
+  if (titleAgrees(candidateTitles, want.core, fuzzy)) return true;
+  const shorter = withoutQuotedSubtitle(want.title);
+  return shorter !== want.title && titleAgrees(candidateTitles, coreTitle(shorter), fuzzy);
+}
+
 /**
  * Is this the right artist?
  *
@@ -262,11 +277,14 @@ function titleAgrees(candidateTitles, wantCore, fuzzy = false) {
  */
 function artistAgrees(candidateArtists, wantArtist) {
   if (!wantArtist) return true;                 // nothing to check against
-  const primary = primaryArtist(wantArtist);
+  // Uploads commonly join a number to the name: Rank1 and Rank 1. Keep
+  // token boundaries (Frank1 must not match Rank 1), but normalize that spacing.
+  const artistWords = (s) => words(s).replace(/(\p{L})(\p{N})/gu, '$1 $2').replace(/(\p{N})(\p{L})/gu, '$1 $2');
+  const primary = artistWords(primaryArtist(wantArtist));
   return candidateArtists.some((c) => {
-    const cc = words(c);
+    const cc = artistWords(c);
     if (!cc) return false;
-    return containsAll(cc, wantArtist) || containsAll(cc, primary) || acronymMatch(cc, primary);
+    return containsAll(cc, artistWords(wantArtist)) || containsAll(cc, primary) || acronymMatch(cc, primary);
   });
 }
 
@@ -293,7 +311,7 @@ function versionAgrees(candidateTitle, wantTitle) {
   // The candidate must carry every distinguishing token, wherever it sits in the
   // title. Requiring them inside brackets rejected a correct match titled
   // "… Silver Screen Shower Scene ADULT Remix" with no brackets at all.
-  return containsAll(words(candidateTitle), want);
+  return containsAll(words(normalizeVersionLabel(candidateTitle)), want);
 }
 
 /**
@@ -350,7 +368,7 @@ export function verifyCandidate(info, want, { fuzzy = false } = {}) {
   if (looksLive(raw, want.title) || looksLive(info.track, want.title)) {
     return { ok: false, reason: `live/set recording (got "${raw}")` };
   }
-  if (!titleAgrees(titleSources, want.core, fuzzy)) {
+  if (!requestedTitleAgrees(titleSources, want, fuzzy)) {
     return { ok: false, reason: `title mismatch (got "${info.track || raw}")` };
   }
   if (!artistAgrees(artistSources, want.artist)) {
@@ -365,7 +383,7 @@ export function verifyCandidate(info, want, { fuzzy = false } = {}) {
 /** Rank a flat search hit before we've paid for its metadata. */
 function preScore(candidateTitle, want, fuzzy = false) {
   const cc = coreTitle(candidateTitle);
-  if (!titleAgrees([candidateTitle], want.core, fuzzy)) return -1;   // can't be right
+  if (!requestedTitleAgrees([candidateTitle], want, fuzzy)) return -1;   // can't be right
   let s = 1;
   // The upload names the artist too — the strongest signal available for free.
   if (want.artist && containsAll(words(candidateTitle), primaryArtist(want.artist))) s += 2;
@@ -390,6 +408,8 @@ function preScore(candidateTitle, want, fuzzy = false) {
  * @param {number} [opts.expectedDurationSec] — the recording's known length, when
  *   the caller has one (a Deezer / Tidal link does). Candidates of a different
  *   length are rejected. Set Extraction has no such figure and passes nothing.
+ * @param {AbortSignal} [opts.signal] — cancel further matching/download attempts
+ * @param {function} [opts.accept] — async callback; false tries another verified source
  * @returns {Promise<{url:string, videoId:string, durationSec:number, title:string, artist:string}|null>}
  */
 export async function resolveBestVideo(ytDlp, query, title, artist, opts = {}) {
@@ -401,7 +421,8 @@ export async function resolveBestVideo(ytDlp, query, title, artist, opts = {}) {
   };
   if (!want.core) return null;                  // nothing to match against → skip
 
-  const deadline = Date.now() + VERIFY_BUDGET_MS;
+  const attempted = new Set(); // verified sources whose download was already attempted
+  const checkAbort = () => { if (opts.signal?.aborted) throw new Error('Extraction cancelled.'); };
   const seen = new Set();
   const gathered = [];                          // every candidate we've seen, any provider
   const infoCache = new Map();                  // url → metadata, so a fuzzy retry is free
@@ -414,7 +435,7 @@ export async function resolveBestVideo(ytDlp, query, title, artist, opts = {}) {
     if (c.prefetched) {
       info = { id: c.id, title: c.title, track: c.track, uploader: c.uploader, duration: c.duration };
     } else {
-      try { info = await ytDlp.getVideoInfo(c.url, null, { timeoutMs: VERIFY_TIMEOUT_MS }); }
+      try { info = await ytDlp.getVideoInfo(c.url, null, { timeoutMs: VERIFY_TIMEOUT_MS, signal: opts.signal }); }
       catch (_) { info = null; }
     }
     infoCache.set(c.url, info);
@@ -422,18 +443,26 @@ export async function resolveBestVideo(ytDlp, query, title, artist, opts = {}) {
   };
 
   const tryCandidates = async (list, fuzzy) => {
+    // Each provider gets its own verification budget, after its search finishes.
+    // A slow YouTube lookup must not starve SoundCloud of its turn.
+    let remainingMs = VERIFY_BUDGET_MS;
     const shortlist = list
       .map((c, i) => ({ c, i, s: preScore(c.title, want, fuzzy) }))
       .filter((x) => x.s >= 0)
       .sort((a, b) => (b.s - a.s) || (a.i - b.i))
       .slice(0, MAX_VERIFICATIONS);
     for (const { c } of shortlist) {
-      if (Date.now() > deadline) return null;   // out of budget → unverified → skip
+      checkAbort();
+      if (attempted.has(c.url)) continue;
+      if (remainingMs <= 0) return null;
+      const started = Date.now();
       const info = await metadataFor(c);
+      remainingMs -= Date.now() - started;
+      checkAbort();
       if (!info) continue;                      // unreachable/dead → try the next
       const v = verifyCandidate(info, want, { fuzzy });
       if (v.ok) {
-        return {
+        const target = {
           url: c.url,
           videoId: String(info.id || c.id || ''),
           durationSec: Number(info.duration) || 0,
@@ -441,6 +470,12 @@ export async function resolveBestVideo(ytDlp, query, title, artist, opts = {}) {
           artist: String(info.artist || info.channel || info.uploader || ''),
           provider: c.provider || 'youtube',
         };
+        attempted.add(c.url);
+        // Metadata can verify while the media is unavailable. Keep searching
+        // until the caller has a usable file, including other providers.
+        if (!opts.accept || await opts.accept(target)) return target;
+        checkAbort();
+        continue;
       }
       console.log(`[SetEngine] rejected "${info.title}" for "${want.artist} — ${want.title}": ${v.reason}`);
     }
@@ -459,7 +494,9 @@ export async function resolveBestVideo(ytDlp, query, title, artist, opts = {}) {
     const fresh = [];
     let res = null;
     for (let attempt = 0; attempt < 2; attempt++) {
+      checkAbort();
       try { res = await fetchList(); } catch (_) { res = null; }
+      checkAbort();
       if (res && res.ok) break;
       if (attempt === 0) await new Promise((r) => setTimeout(r, 1500));
     }
@@ -479,17 +516,19 @@ export async function resolveBestVideo(ytDlp, query, title, artist, opts = {}) {
   // because that is exactly the case it exists for: bootlegs, edits, white
   // labels and promos that were never released to a streaming catalogue and so
   // genuinely are not on YouTube at all.
+  const queries = [query];
+  const shorter = withoutQuotedSubtitle(want.title);
+  if (shorter !== want.title) queries.push(`${want.artist} ${shorter}`.trim());
   const stages = [
-    () => ytDlp.searchMusic(query, 8),
-    () => ytDlp.searchYouTube(query, 8),
-    () => ytDlp.searchSoundCloud(query, 8),
+    ...queries.map(q => () => ytDlp.searchMusic(q, 8)),
+    ...queries.map(q => () => ytDlp.searchYouTube(q, 8)),
+    ...queries.map(q => () => ytDlp.searchSoundCloud(q, 8)),
   ];
   for (const stage of stages) {
     const fresh = await gather(stage);
     if (!fresh.length) continue;
     const hit = await tryCandidates(fresh, false);
     if (hit) return hit;
-    if (Date.now() > deadline) break;
   }
 
   // Last resort: re-examine everything already gathered, tolerating a typo in

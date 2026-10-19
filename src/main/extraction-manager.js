@@ -18,6 +18,7 @@ import { rm } from 'node:fs/promises';
 import { app } from 'electron';
 import { classifyExtractionUrl } from './sources.js';
 import { extractSet } from './set-extractor.js';
+import { cacheTrack } from './extraction-cache.js';
 
 // How many extractions may scan/download at once. Extra jobs sit in `queued`
 // and start as slots free up. Kept low because of YouTube's per-IP bot-check
@@ -36,6 +37,8 @@ export default class ExtractionJobManager {
     this.ytDlp = ytDlp;
     this.settingsManager = settingsManager;
     this.jobs = new Map();
+    this.cacheRetries = new Map();
+    this.cacheLimit = pLimit(3);
     this.limit = pLimit(MAX_CONCURRENT_EXTRACTIONS);
   }
 
@@ -143,6 +146,34 @@ export default class ExtractionJobManager {
     }
   }
 
+  // Coalesce Play/Save clicks for the same row and publish the repaired cache
+  // back onto the job, so subsequent playback and exports use the same file.
+  async ensureTrackCache(jobId, index) {
+    const job = this.jobs.get(jobId);
+    if (!job || job.status !== 'done' || !Number.isInteger(index) || !job.tracks[index]) {
+      throw new Error('This extracted track is no longer available.');
+    }
+    const key = `${jobId}:${index}`;
+    if (this.cacheRetries.has(key)) return this.cacheRetries.get(key).promise;
+    const controller = new AbortController();
+    job.tracks[index].cacheState = 'caching';
+    this._broadcast();
+    const promise = this.cacheLimit(async () => {
+      await cacheTrack(job.tracks[index], {
+        ytDlp: this.ytDlp, cacheDir: job.cacheDir,
+        bitrate: this.settingsManager.getAll().audioQuality || 320,
+        signal: controller.signal,
+      });
+      return job.tracks[index];
+    }).finally(() => {
+      job.tracks[index].cacheState = job.tracks[index].cachePath ? 'ready' : 'unavailable';
+      this.cacheRetries.delete(key);
+      this._broadcast();
+    });
+    this.cacheRetries.set(key, { jobId, controller, promise });
+    return promise;
+  }
+
   cancelJob(id) {
     const job = this.jobs.get(id);
     if (!job) return { success: false };
@@ -159,9 +190,12 @@ export default class ExtractionJobManager {
     const job = this.jobs.get(id);
     if (!job) return { success: true };
     if (job._abort) { try { job._abort.abort(); } catch (_) { /* ignore */ } }
+    const retries = [...this.cacheRetries.values()].filter(r => r.jobId === id);
+    for (const r of retries) r.controller.abort();
     // Drop from the map first so a late _run resolution can't resurrect it.
     this.jobs.delete(id);
     this._broadcast();
+    await Promise.allSettled(retries.map(r => r.promise));
     try {
       await rm(job.cacheDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     } catch (_) { /* best-effort */ }
@@ -184,6 +218,7 @@ export default class ExtractionJobManager {
   // Abort every in-flight job without removing it — used on app quit so no
   // recognizer/API work keeps running after the window is gone.
   abortAll() {
+    for (const r of this.cacheRetries.values()) r.controller.abort();
     for (const job of this.jobs.values()) {
       if (job._abort) { try { job._abort.abort(); } catch (_) { /* ignore */ } }
     }
