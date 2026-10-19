@@ -261,6 +261,7 @@ export class ExtractPage {
 
   // ── View routing ────────────────────────────────────────────────────
   _goToList() {
+    this._playRequest = null;
     this.playingIndex = -1;
     if (this.audio) { this.audio.pause(); this.audio.src = ''; }
     this.view = 'list';
@@ -269,6 +270,7 @@ export class ExtractPage {
   }
 
   _openJob(id) {
+    this._playRequest = null;
     if (this.selectedJobId !== id) {
       this.playingIndex = -1;
       if (this.audio) { this.audio.pause(); this.audio.src = ''; }
@@ -524,10 +526,10 @@ export class ExtractPage {
           : ''}${t.provider && t.provider !== 'youtube'
           // Only flag the non-default source. SoundCloud tops out at 128 kbps, so
           // a track found there is lower quality than one from YouTube Music —
-          // it's there because the track exists nowhere else, and the user should
+          // it may be the only currently usable source, and the user should
           // be able to see that rather than wonder why one file sounds different.
-          ? ` <span class="extract-row-src" title="Found on ${escapeHtml(t.provider)} — this track isn't on YouTube. Source quality is lower (128 kbps).">${escapeHtml(t.provider)}</span>`
-          : ''}</span>
+          ? ` <span class="extract-row-src" title="Found on ${escapeHtml(t.provider)} — YouTube was unavailable or no usable match was found. Source quality may be lower.">${escapeHtml(t.provider)}</span>`
+          : ''}<span class="extract-cache-status text-muted"></span></span>
         <div class="extract-row-actions">
           <button class="extract-dl-btn" aria-label="Download">
             <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" fill="currentColor"/></svg>
@@ -648,13 +650,24 @@ export class ExtractPage {
   }
 
   // ── Tracklist playback + downloads ──────────────────────────────────
-  _togglePlay(index, track) {
+  async _togglePlay(index, track) {
+    const request = this._playRequest = Symbol();
     if (this.playingIndex === index) {
       if (!this.audio.paused) this.audio.pause();
       else this.audio.play().catch(() => showToast('Failed to play audio', 'error'));
       return;
     }
-    if (!track.cachePath) { showToast('Track not available in cache', 'error'); return; }
+    const jobId = this.selectedJobId;
+    try {
+      if (!track.cachePath) showToast('Finding and downloading this track…', 'info');
+      const res = await window.setengine.cacheExtractionTrack(jobId, index);
+      if (this.destroyed || this.view !== 'detail' || this.selectedJobId !== jobId || this._playRequest !== request) return;
+      if (!res?.success) { showToast(res?.error || 'Could not prepare audio', 'error', 5000); return; }
+      track = res.track;
+    } catch (err) {
+      showToast(err.message || 'Could not prepare audio', 'error');
+      return;
+    }
     this.audio.src = audioUrlForPath(track.cachePath);
     this.playingIndex = index;
     this.audio.play().catch(() => showToast('Failed to start audio', 'error'));
@@ -780,6 +793,13 @@ export class ExtractPage {
     }
 
     const job = this._selectedJob();
+    const cachedTrack = job?.tracks?.[index];
+    const playButton = row.querySelector('.extract-play-btn');
+    const cacheStatus = row.querySelector('.extract-cache-status');
+    cacheStatus.textContent = cachedTrack?.cacheState === 'caching' ? ' · Preparing audio…'
+      : cachedTrack?.cachePath ? '' : ' · Audio unavailable · retry';
+    cacheStatus.title = cachedTrack?.cacheError || 'Click Play or Download to search again';
+    playButton.title = cachedTrack?.cachePath ? 'Play cached track' : (cachedTrack?.cacheError || 'Find and download audio to play');
     const dlId = job && job.trackDownloads ? job.trackDownloads[index] : undefined;
     let dlItem = null;
     if (dlId != null) {
@@ -788,7 +808,7 @@ export class ExtractPage {
       // usually the specific version (an acappella, a particular remix) isn't on
       // YouTube at all. Downloading the nearest thing would hand back a file
       // with the right name and the wrong audio, so it is deliberately refused.
-      else if (typeof dlId === 'string' && dlId.startsWith('skipped-')) dlItem = { status: 'error', error: "Skipped — couldn't confirm this exact track on YouTube" };
+      else if (typeof dlId === 'string' && dlId.startsWith('skipped-')) dlItem = { status: 'error', error: "Could not prepare this track — click Download to retry" };
       else dlItem = this.queueMap.get(dlId) || { status: 'queued' };
     }
 

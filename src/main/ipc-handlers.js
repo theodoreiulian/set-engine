@@ -517,10 +517,16 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
   ipcMain.handle('extract:cancel', (event, id) => extractionManager.cancelJob(id));
   ipcMain.handle('extract:delete', (event, id) => extractionManager.deleteJob(id));
   ipcMain.handle('extract:jobs', () => extractionManager.getJobs());
+  ipcMain.handle('extract:cache-track', async (event, { jobId, trackIndex } = {}) => {
+    try { return { success: true, track: await extractionManager.ensureTrackCache(jobId, trackIndex) }; }
+    catch (err) { return { success: false, error: err.message }; }
+  });
 
   ipcMain.handle('download:track', async (event, opts) => {
     try {
-      const { query, title, artist, trackNumber, filenameTemplate, cachePath, outputDir, jobId, trackIndex } = opts || {};
+      const { query, title, artist, trackNumber, filenameTemplate, outputDir, jobId, trackIndex } = opts || {};
+      let cachePath = opts?.cachePath;
+      if (jobId) cachePath = (await extractionManager.ensureTrackCache(jobId, trackIndex)).cachePath;
 
       const nameSource = filenameTemplate || title || query;
       if (!nameSource) return { success: false, error: 'query is required' };
@@ -564,7 +570,7 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
       const target = await resolveBestVideo(ytDlp, query, title || query, artist);
       if (!target) {
         if (typeof trackIndex === 'number') record('skipped-' + trackIndex);
-        return { success: false, skipped: true, error: `Couldn't verify a YouTube match for "${title || query}" — skipped to avoid downloading the wrong track.` };
+        return { success: false, skipped: true, error: `Couldn't verify a YouTube or SoundCloud match for "${title || query}" — skipped to avoid downloading the wrong track.` };
       }
       const id = await downloadManager.addDownload(target.url, null, {
         title: title || query,
@@ -616,6 +622,10 @@ export function registerIpcHandlers(mainWindow, ytDlp, spotdl, downloadManager, 
         let finalFilename = `${safeTitle}.mp3`;
 
         try {
+          if (jobId) {
+            const prepared = await extractionManager.ensureTrackCache(jobId, rowIndex(i));
+            t.cachePath = prepared.cachePath;
+          }
           let copied = false;
           if (t.cachePath) {
             try {

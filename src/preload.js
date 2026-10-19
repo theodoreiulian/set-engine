@@ -80,6 +80,7 @@ contextBridge.exposeInMainWorld('setengine', {
   cancelExtraction: (id) => ipcRenderer.invoke('extract:cancel', id),
   deleteExtraction: (id) => ipcRenderer.invoke('extract:delete', id),
   getExtractionJobs: () => ipcRenderer.invoke('extract:jobs'),
+  cacheExtractionTrack: (jobId, trackIndex) => ipcRenderer.invoke('extract:cache-track', { jobId, trackIndex }),
   onExtractJobsUpdate: (cb) => {
     const handler = (_e, data) => cb(data);
     ipcRenderer.on('extract:jobs-update', handler);

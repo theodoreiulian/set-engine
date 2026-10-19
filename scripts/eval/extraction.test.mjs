@@ -3,7 +3,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, stat, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -16,6 +16,7 @@ await build({
   stdin: {
     contents: `export { extractSet } from './src/main/set-extractor.js';
       export { default as Manager } from './src/main/extraction-manager.js';
+      export { registerIpcHandlers } from './src/main/ipc-handlers.js';
       export { default as Wrapper } from './src/main/ytdlp-wrapper.js';
       export * from './src/main/sources.js';`,
     resolveDir: process.cwd(),
@@ -23,19 +24,22 @@ await build({
   outfile: bundle, bundle: true, platform: 'node', format: 'esm',
   plugins: [{ name: 'test-boundaries', setup(b) {
     const stubs = {
-      'electron': `export const app = { getPath: () => ${JSON.stringify(tmp)} };`,
+      'electron': `export const app = { getPath: () => ${JSON.stringify(tmp)} };
+        export const ipcMain = { handle: (name, fn) => { (globalThis.extractionHandlers ||= {})[name] = fn; } };
+        export const dialog = {}, net = {}, shell = {};`,
+      'node-id3': `export default { update: () => true };`,
       './shazam/recognize.js': `export const recognize = (...args) => globalThis.extractionTest.recognize(...args);
         export const spotCheck = (...args) => globalThis.extractionTest.spotCheck(...args);`,
       './mixesdb.js': `export const lookupByVideoId = (...args) => globalThis.extractionTest.mixesdb(...args);`,
       './track-match.js': `export const resolveBestVideo = (...args) => globalThis.extractionTest.match(...args);`,
       './download-verify.js': `export const verifyDownloadedAudio = (...args) => globalThis.extractionTest.verify(...args);`,
     };
-    b.onResolve({ filter: /^(electron|\.\/shazam\/recognize\.js|\.\/mixesdb\.js|\.\/track-match\.js|\.\/download-verify\.js)$/ },
+    b.onResolve({ filter: /^(electron|node-id3|\.\/shazam\/recognize\.js|\.\/mixesdb\.js|\.\/track-match\.js|\.\/download-verify\.js)$/ },
       ({ path }) => ({ path, namespace: 'test' }));
     b.onLoad({ filter: /.*/, namespace: 'test' }, ({ path }) => ({ contents: stubs[path], loader: 'js' }));
   } }],
 });
-const { extractSet, Manager, Wrapper, classifyExtractionUrl, expandShortLink } = await import(pathToFileURL(bundle));
+const { extractSet, Manager, Wrapper, registerIpcHandlers, classifyExtractionUrl, expandShortLink } = await import(pathToFileURL(bundle));
 const sc = 'https://soundcloud.com/dj/a-recorded-mix';
 const yt = 'https://www.youtube.com/watch?v=abcdefghijk';
 const entries = [
@@ -51,8 +55,8 @@ function harness(info = {}) {
     recognize: async () => { calls.scans++; return { tracks: entries, gaps: [] }; },
     spotCheck: async () => { calls.spots++; return { answered: 0, observations: [] }; },
     mixesdb: async () => { calls.mixes++; return null; },
-    match: async () => { calls.matches++; return { url: 'https://soundcloud.com/artist/verified-track', durationSec: 200, provider: 'soundcloud' }; },
-    verify: async (...args) => { calls.verifications.push(args); return { ok: true }; },
+    match: async (...args) => { calls.matches++; const target = { url: 'https://soundcloud.com/artist/verified-track', durationSec: 200, provider: 'soundcloud' }; return !args[4]?.accept || await args[4].accept(target) ? target : null; },
+    verify: async (...args) => { calls.verifications.push(args); try { await stat(args[0]); return { ok: true }; } catch { return { ok: false, reason: 'missing' }; } },
   };
   const ytDlp = {
     getVideoInfo: async (...args) => {
@@ -117,8 +121,9 @@ test('SoundCloud description → spot check → ordered, verified downloadable t
   assert.equal(h.calls.downloads.length, 4);
   assert.equal(h.calls.info[0][2].noPlaylist, true);
   assert.equal(h.calls.downloadOptions[0].noPlaylist, true);
-  assert.equal(h.calls.verifications.length, 3);
-  assert.ok(h.calls.verifications.every(([, opts]) => opts.expectedDurationSec === 200));
+  const downloadedChecks = h.calls.verifications.filter(([file]) => file.includes('.track-'));
+  assert.equal(downloadedChecks.length, 3);
+  assert.ok(downloadedChecks.every(([, opts]) => opts.expectedDurationSec === 200));
 });
 
 test('SoundCloud without a published list scans audio and caches recognized tracks', async () => {
@@ -209,4 +214,45 @@ test('metadata wrapper limits extraction to one recording without changing other
   assert.ok(wrapper.buildUrlInfoArgs({ url: sc, noPlaylist: true }).includes('--no-playlist'));
   assert.ok(!wrapper.buildUrlInfoArgs({ url: sc }).includes('--no-playlist'));
   assert.ok(wrapper.buildSongArgs({ url: yt, outputFolder: tmp, noPlaylist: true }).includes('--no-playlist'));
+});
+
+
+test('Play and Save share one cache repair and publish the result on the job', async () => {
+  const h = harness();
+  const manager = new Manager(null, h.ytDlp, { getAll: () => ({}) });
+  const cacheDir = path.join(tmp, 'repair-job');
+  manager.jobs.set('repair', { id: 'repair', status: 'done', cacheDir, tracks: [{ artist: 'Alpha', title: 'First' }] });
+  const [play, save] = await Promise.all([manager.ensureTrackCache('repair', 0), manager.ensureTrackCache('repair', 0)]);
+  assert.equal(play.cachePath, save.cachePath);
+  assert.equal(h.calls.downloads.length, 1);
+  assert.equal(manager.getJobs()[0].tracks[0].cachePath, play.cachePath);
+  await rm(play.cachePath);
+  await manager.ensureTrackCache('repair', 0);
+  assert.equal(h.calls.downloads.length, 2);
+  await manager.deleteJob('repair');
+  await assert.rejects(stat(cacheDir));
+  await assert.rejects(manager.ensureTrackCache('repair', 0), /no longer available/);
+});
+
+
+test('extraction Play, single Save and whole-set Save repair the cache and copy its audio', async () => {
+  const h = harness();
+  const outputDir = path.join(tmp, 'saved-tracks');
+  const settings = { getAll: () => ({ downloadFolder: outputDir }) };
+  const manager = new Manager(null, h.ytDlp, settings);
+  const cacheDir = path.join(tmp, 'ipc-job');
+  manager.jobs.set('ipc', { id: 'ipc', status: 'done', cacheDir,
+    tracks: [{ artist: 'Alpha', title: 'First' }, { artist: 'Bravo', title: 'Second' }], trackDownloads: {} });
+  registerIpcHandlers(null, h.ytDlp, null, { addDownload: () => assert.fail('Extraction must save through its cache') }, settings, manager, null);
+  const handlers = globalThis.extractionHandlers;
+  const played = await handlers['extract:cache-track'](null, { jobId: 'ipc', trackIndex: 0 });
+  assert.equal(played.success, true);
+  const saved = await handlers['download:track'](null, { jobId: 'ipc', trackIndex: 0, title: 'First', query: 'Alpha First', outputDir });
+  assert.equal(saved.copied, true);
+  assert.deepEqual(await readFile(path.join(outputDir, 'First.mp3')), await readFile(played.track.cachePath));
+  const batch = await handlers['download:tracks'](null, { jobId: 'ipc', indices: [1], tracks: [{ artist: 'Bravo', title: 'Second' }], outputDir });
+  assert.equal(batch.success, true);
+  assert.deepEqual(await readFile(path.join(outputDir, 'Second.mp3')), await readFile(manager.jobs.get('ipc').tracks[1].cachePath));
+  assert.equal(h.calls.downloads.length, 2);
+  assert.deepEqual(manager.jobs.get('ipc').trackDownloads, { 0: 'copied-0', 1: 'copied-1' });
 });

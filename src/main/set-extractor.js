@@ -18,12 +18,11 @@
 import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
-import { mkdtemp, rm, readdir, stat, mkdir, unlink } from 'node:fs/promises';
+import { mkdtemp, rm, readdir, mkdir } from 'node:fs/promises';
 import { recognize, spotCheck } from './shazam/recognize.js';
 import { parsePublishedTracklist, splitArtistTitle, completenessOf } from './tracklist-sources.js';
 import { lookupByVideoId } from './mixesdb.js';
-import { resolveBestVideo } from './track-match.js';
-import { verifyDownloadedAudio } from './download-verify.js';
+import { cacheTrack } from './extraction-cache.js';
 import { mergeTracklists, spotCheckAgreement, identityKey } from './track-merge.js';
 import { classifyExtractionUrl } from './sources.js';
 
@@ -411,77 +410,11 @@ export async function extractSet(url, { ytDlp, settings = {}, signal, onProgress
 
     const runCacheDownload = async (t) => {
       if (signal && signal.aborted) return;
-      const query = t.artist ? `${t.artist} ${t.title}` : t.title;
-      // Key the cache file by the track's *normalized* identity — the same key
-      // dedupe uses — so two surviving tracks can never collide onto one file and
-      // serve each other's audio (a raw query could).
-      const fileId = crypto.createHash('md5').update(identityKey(t.artist, t.title) || query).digest('hex');
-      const expectedFile = path.join(cacheDir, `${fileId}.mp3`);
-
-      // Whole body is guarded: a single track can only ever fail to produce a
-      // cachePath, never reject the batch. resolveBestVideoUrl is documented as
-      // best-effort, but a stray throw here must not abort the whole extraction.
       try {
-        try {
-          await stat(expectedFile);
-          // A cache hit still has to be a playable file. A run killed mid-write
-          // can leave a truncated .mp3 behind, and serving that under the right
-          // name is the same class of failure as serving the wrong song.
-          const cached = await verifyDownloadedAudio(expectedFile, {});
-          if (!cached.ok) {
-            try { await unlink(expectedFile); } catch (_) { /* best-effort */ }
-            throw new Error(`cached file rejected: ${cached.reason}`);   // fall through to re-download
-          }
-          t.cachePath = expectedFile;
-        } catch (_) {
-          // Cache miss → resolve to a YouTube video that has been VERIFIED to be
-          // this recording (title, artist, version and duration all checked
-          // against the video's real metadata). null = nothing could be verified;
-          // leave this track without a cached file rather than download something
-          // wrong — a correctly-labelled wrong file is the worst outcome here.
-          const target = await resolveBestVideo(ytDlp, query, t.title, t.artist);
-          if (target) {
-            try {
-              await new Promise((resolve, reject) => {
-                const dl = ytDlp.download(target.url, cacheDir, { bitrate: downloadBitrate, filenameTemplate: fileId });
-                const onAbort = () => { try { dl.cancel(); } catch (_) {} reject(new Error('Extraction cancelled.')); };
-                if (signal) {
-                  if (signal.aborted) { onAbort(); return; }
-                  signal.addEventListener('abort', onAbort, { once: true });
-                }
-                dl.on('complete', () => { if (signal) signal.removeEventListener('abort', onAbort); resolve(); });
-                dl.on('error', (err) => { if (signal) signal.removeEventListener('abort', onAbort); reject(err); });
-              });
-              const actualPath = await findDownloaded(cacheDir, fileId);
-
-              // Last gate: confirm what landed on disk really is the recording we
-              // verified. The metadata check above can't see a truncated file, a
-              // format fallback, or a stale file matched by the filename glob —
-              // and every one of those would be served to the user under the
-              // right name. Refuse the file rather than cache a wrong one.
-              const check = await verifyDownloadedAudio(actualPath, {
-                expectedDurationSec: target.durationSec,
-              });
-              if (!check.ok) {
-                try { await unlink(actualPath); } catch (_) { /* best-effort */ }
-                console.error(`[SetEngine] discarded download for "${query}": ${check.reason} (${target.url})`);
-              } else {
-                t.cachePath = actualPath;
-                t.sourceUrl = target.url;        // provenance, so a bad match is auditable
-                // Surfaced in the UI. It matters: SoundCloud tops out at 128 kbps,
-                // so a track found there is lower quality than one from YouTube
-                // Music — worth having, but the user should know which they got.
-                t.provider = target.provider || 'youtube';
-              }
-            } catch (err) {
-              // Remove any partial/`.part` file this failed download left behind.
-              try { await unlink(expectedFile); } catch (_) { /* may not exist */ }
-              console.error('Failed to cache track:', query, err.message);
-            }
-          }
-        }
+        await cacheTrack(t, { ytDlp, cacheDir, bitrate: downloadBitrate, signal });
       } catch (err) {
-        console.error('Cache step failed for track:', query, err && err.message);
+        t.cacheError = err.message;
+        console.error('Cache step failed for track:', t.title, err.message);
       } finally {
         cachedTracksCount++;
         emit({ phase: 'caching', percent: Math.round((cachedTracksCount / merged.length) * 100) });
