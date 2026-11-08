@@ -773,15 +773,12 @@ main, .footer { position: relative; z-index: 1; }
 
 /* ---------- Reveal on scroll ---------- */
 
-.js .reveal > * {
-  opacity: 0;
-  transform: translateY(22px);
-  transition: opacity 0.9s var(--ease), transform 0.9s var(--ease);
-}
-.js .reveal.in > * { opacity: 1; transform: none; }
-.reveal.in > *:nth-child(2) { transition-delay: 0.07s; }
-.reveal.in > *:nth-child(3) { transition-delay: 0.14s; }
-.reveal.in > *:nth-child(4) { transition-delay: 0.21s; }
+/* Copy stays readable before scrolling and if JavaScript fails. Animate only
+   when a block enters the viewport, rather than hiding the rest of the page. */
+.js .reveal.in > * { animation: fade-up 0.9s var(--ease) backwards; }
+.reveal.in > *:nth-child(2) { animation-delay: 0.07s; }
+.reveal.in > *:nth-child(3) { animation-delay: 0.14s; }
+.reveal.in > *:nth-child(4) { animation-delay: 0.21s; }
 
 /* ---------- Narrow screens: the cable runs down a left gutter ---------- */
 

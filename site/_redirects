@@ -1,0 +1,2 @@
+# Keep the homepage at one URL, even when index.html exists on disk.
+/index.html / 301!

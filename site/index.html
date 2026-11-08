@@ -3,19 +3,76 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SetEngine: free, open source tools for DJs</title>
-  <meta name="description" content="SetEngine is a free, open source Mac app for DJs. It downloads music from YouTube, Spotify, SoundCloud, Deezer and Tidal links, works out the tracklist of a recorded DJ set, detects BPM and key, and builds setlists that mix in key.">
+  <title>SetEngine | Free DJ Tools for Mac: Downloads, BPM &amp; Key</title>
+  <meta name="description" content="Free, open source DJ tools for Mac. Download music from links, identify DJ set tracklists, detect BPM and key, and build harmonic setlists. No account needed.">
   <meta name="theme-color" content="#0f1011">
-  <meta property="og:title" content="SetEngine: free, open source tools for DJs">
-  <meta property="og:description" content="A free, open source Mac app that downloads tracks, finds the tracklist of a DJ set, and builds setlists that mix in key.">
-  <meta property="og:image" content="assets/icon.png">
+  <link rel="canonical" href="https://set-engine.com/">
+  <meta property="og:title" content="SetEngine | Free DJ Tools for Mac: Downloads, BPM &amp; Key">
+  <meta property="og:description" content="Free, open source DJ tools for Mac. Download music from links, identify DJ set tracklists, detect BPM and key, and build harmonic setlists. No account needed.">
+  <meta property="og:url" content="https://set-engine.com/">
+  <meta property="og:site_name" content="SetEngine">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:image" content="https://set-engine.com/assets/icon.png">
+  <meta property="og:image:alt" content="SetEngine app icon">
+  <meta property="og:image:width" content="512">
+  <meta property="og:image:height" content="512">
   <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="SetEngine | Free DJ Tools for Mac: Downloads, BPM &amp; Key">
+  <meta name="twitter:description" content="Free, open source DJ tools for Mac. Download music from links, identify DJ set tracklists, detect BPM and key, and build harmonic setlists. No account needed.">
+  <meta name="twitter:image" content="https://set-engine.com/assets/icon.png">
+  <meta name="twitter:image:alt" content="SetEngine app icon">
   <link rel="icon" type="image/png" href="assets/icon.png">
+  <link rel="sitemap" type="application/xml" href="/sitemap.xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800;900&family=Instrument+Sans:wght@400;500;600&family=Martian+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
   <script>document.documentElement.classList.replace('no-js', 'js');</script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        "@id": "https://set-engine.com/#website",
+        "url": "https://set-engine.com/",
+        "name": "SetEngine",
+        "inLanguage": "en",
+        "about": { "@id": "https://set-engine.com/#app" }
+      },
+      {
+        "@type": "SoftwareApplication",
+        "@id": "https://set-engine.com/#app",
+        "name": "SetEngine",
+        "url": "https://set-engine.com/",
+        "description": "Free, open source DJ tools for Mac: music downloads, DJ set tracklist identification, BPM and key detection, harmonic setlists, and library organization.",
+        "applicationCategory": "MultimediaApplication",
+        "operatingSystem": "macOS 12 or later",
+        "image": "https://set-engine.com/assets/icon.png",
+        "downloadUrl": "https://github.com/theodoreiulian/set-engine/releases/latest/download/SetEngine.dmg",
+        "installUrl": "https://set-engine.com/#install",
+        "license": "https://github.com/theodoreiulian/set-engine/blob/master/LICENSE",
+        "isAccessibleForFree": true,
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD",
+          "url": "https://set-engine.com/#install"
+        },
+        "featureList": [
+          "Download music from YouTube, Spotify, SoundCloud, Deezer and Tidal links",
+          "Identify tracks in recorded DJ sets on YouTube and SoundCloud",
+          "Detect BPM and musical key from local audio files",
+          "Build harmonic setlists and import or export M3U playlists",
+          "Find compatible tracks by BPM and Camelot key",
+          "Sort tracks into crates without moving original files"
+        ],
+        "sameAs": "https://github.com/theodoreiulian/set-engine"
+      }
+    ]
+  }
+  </script>
 </head>
 <body>
 <a class="skip" href="#features">Skip to features</a>
@@ -126,7 +183,7 @@
       <article class="feature">
         <div class="feature-copy gutter reveal">
           <p class="channel"><span>CH 01</span> Download</p>
-          <h3>Download<br>from a link</h3>
+          <h3>Download music<br>from a link</h3>
           <p>
             Paste a link from YouTube, YouTube Music, Spotify, SoundCloud, Deezer or Tidal. SetEngine works out
             whether it's a single track, a playlist or an album and adds it to the
@@ -180,7 +237,7 @@
         <div class="trio">
           <article>
             <svg data-art="setmaker" viewBox="0 0 600 450" role="img" aria-label="Seven tracks joined by a rising line, each labelled with its Camelot key and BPM."></svg>
-            <h3>Set Maker</h3>
+            <h3>Set Maker: harmonic setlists</h3>
             <p>
               Analyzes a folder for BPM and key, lets you rate tracks, and orders
               them into a setlist where each transition is in key. It imports and
@@ -189,7 +246,7 @@
           </article>
           <article>
             <svg data-art="match" viewBox="0 0 600 450" role="group" aria-label="Camelot wheel. Pick a key to see which keys mix with it."></svg>
-            <h3>Match Maker</h3>
+            <h3>Match Maker: BPM and key matching</h3>
             <p>
               Pick a track and it lists the ones in your library that mix with it,
               by key and BPM. Click a key on the wheel to see which keys go together.
@@ -197,7 +254,7 @@
           </article>
           <article>
             <svg data-art="sorter" viewBox="0 0 600 450" role="img" aria-label="A playing track is routed into two of four numbered folders."></svg>
-            <h3>Crate Sorter</h3>
+            <h3>Crate Sorter: organize your DJ library</h3>
             <p>
               Plays each track in a folder and copies it into the folders you choose
               when you press a number key. Your original files are not moved.
@@ -243,17 +300,17 @@
         <p class="module-cap"><i class="led"></i>INSTALL</p>
         <h2>How to install it</h2>
         <ol class="steps">
-          <li class="f" data-s="0.1" data-w="0.2">
+          <li>
             <span class="step-n">01</span>
             <h3>Download the disk image</h3>
             <p>It is one 265 MB file that works on both Apple Silicon and Intel Macs.</p>
           </li>
-          <li class="f" data-s="0.35" data-w="0.2">
+          <li>
             <span class="step-n">02</span>
             <h3>Drag it to Applications</h3>
             <p>There is nothing else to install. yt-dlp and ffmpeg come inside the app, and it keeps yt-dlp up to date.</p>
           </li>
-          <li class="f" data-s="0.6" data-w="0.2">
+          <li>
             <span class="step-n">03</span>
             <h3>Allow it the first time</h3>
             <p>SetEngine isn't signed with a paid Apple developer certificate, so macOS blocks the
