@@ -173,6 +173,26 @@ See [CLAUDE.md](CLAUDE.md) for detailed architecture notes.
 
 The project's landing page lives in `site/` as plain HTML, CSS and JavaScript with no build step. Preview it with `python3 -m http.server --directory site`, and host the folder as-is on any static host.
 
+The public website is **https://set-engine.com/**, hosted on Netlify. Publish the
+entire `site/` directory, including `robots.txt`, `sitemap.xml`, and `_redirects`.
+The redirect file consolidates `/index.html` onto `/`; Netlify handles HTTPS and
+the `www` domain redirect.
+
+For Google Search Console, verify ownership of `set-engine.com`, then open
+**Sitemaps** and submit **https://set-engine.com/sitemap.xml** after deploying.
+Use **URL inspection → Test live URL** on the homepage, then **Request indexing**.
+The sitemap lists the one canonical homepage; section anchors and the GitHub
+download are not separate website pages. Add any future public HTML pages to
+the sitemap with their own canonical URLs. A `lastmod` date is deliberately
+omitted rather than publishing a date that becomes stale or changes without a
+content update.
+
+The homepage includes WebSite and SoftwareApplication JSON-LD describing the
+actual free app. It has no invented ratings or reviews; software rich results
+also require real review data, so the markup alone does not qualify it for
+those results. Search Console can track indexing, impressions, clicks and
+queries after publication; a sitemap and metadata do not guarantee rankings.
+
 ## Contributing
 
 Pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
